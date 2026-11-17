@@ -6,12 +6,20 @@
  *   white keys 9-12   CHORDS    four parts; one at a time
  *   white keys 13-16  MELODY    four parts; one at a time
  *   black keys        the eleven effect pads, on the whole mix, while held
- *   PRESETS           the bank: HOUSE, HIP HOP, DISCO (its tempo, swing, sounds)
+ *   PRESETS           the bank: HOUSE, HIP HOP, DISCO (its tempo, swing, progression, sounds)
  *   KNOB 1-4          FILTER (left low pass, right high pass), PUMP, SWING, TEMPO
  *   PLAY              play / stop (the first loop switched on starts it)
  *   HOME              back
- * Everything changes on the next bar (its key blinks until then). The loops are text, up to four bars;
- * they play on the GROOVEBOX's four tracks, which the deck borrows (gbx_deck_on) and gives back when
+ * Everything changes on the next bar (its key blinks until then).
+ *
+ * A bank is eight bars: a PROGRESSION (a chord a bar, usually twice almost the same four bars) that
+ * every part follows, so any combination fits. The bass and melody are RIFFS in Playtime's format
+ * (vector-sketch/experiments/playtime/src/music-riffs.lua): a one-bar PHRASE in degrees over each
+ * bar's root, VARIATIONS laid over it (a space keeps the phrase's step), and a FORM of eight letters
+ * ('AAABAAAC': the same bar three times, a turn into the fifth bar, a bigger one back to the top).
+ * Written in the minor pentatonic, a riff follows the chord: over a major chord its notes move to the
+ * same places on the major pentatonic. The chord parts are rhythms that strike the bar's chord.
+ * They play on the GROOVEBOX's four tracks, which the deck borrows (gbx_deck_on) and gives back when
  * the GROOVEBOX opens. */
 #include "deck.h"
 #include "gbx.h"
@@ -22,77 +30,71 @@
 #include "mysynth.h"
 #include <string.h>
 
-enum { V_KICK = 0, V_SNARE = 1, V_RIM = 2, V_HHC = 3, V_HHO = 4, V_CYM = 5, V_COW = 7, V_TAMB = 8, V_MAR = 9,
-       V_CLV = 10, V_BONH = 12, V_BONL = 13, V_CONGA = 14 };
-enum { PARTS = 4, LOOPS = 4, ROWS = 3 };
+enum { V_KICK = 0, V_SNARE = 1, V_RIM = 2, V_HHC = 3, V_HHO = 4, V_COW = 7, V_TAMB = 8, V_MAR = 9, V_CONGA = 14 };
+enum { PARTS = 4, LOOPS = 4, ROWS = 3, BARS = GBX_DECK_BARS };
 struct beat { const char *name; struct { uint8_t voice; const char *steps; } row[ROWS]; };   /* x a hit, X accented */
+/* a riff: degrees R 2 m 3 4 b 5 6 7 8 (the octave), L (the fifth below), A (a half step under the next
+ * bar's root), N (the next bar's root, early); '-' holds, '.' rests. A phrase shorter than 16 repeats. */
+struct riff { const char *name, *phrase, *var[3], *form; };   /* var: B C D */
+struct rhythm { const char *name, *steps; };                     /* X strikes the bar's chord, '-' holds */
 struct bank {
     const char *name;
     uint8_t tempo, swing;                 /* BPM; swing 50..66 */
     uint8_t keys_patch, lead_patch;       /* MY SYNTH patches: 0 INIT 1 PAD 2 BRASS 3 PLUCK 4 BASS 5 LEAD */
     int16_t bass_sound[2][4];             /* {CUT RES DEC SUB}, {WAVE DRV ATK PTCH} */
+    const char *progression;              /* eight chords, one a bar */
     struct beat beat[LOOPS];
-    /* tokens, 16 a bar, up to four bars: a note (A2, C#3, Eb4) or chord (Am, Am7, C, Cmaj7, G7, Bdim);
-     * "." rest, "-" hold the one before; "~" before a note slides into it */
-    const char *bass[LOOPS], *chords[LOOPS], *melody[LOOPS];
-    const char *bass_name[LOOPS], *chords_name[LOOPS], *melody_name[LOOPS];
+    struct riff bass[LOOPS];
+    struct rhythm chords[LOOPS];
+    struct riff melody[LOOPS];
 };
 
 static const struct bank banks[] = {
     {"HOUSE", 124, 52, 3, 5, {{45, 40, 30, 70}, {0, 0, 1, 0}},
+     "Am7 Am7 Fmaj7 G Am7 Am7 Fmaj7 Em7",
      {{"KICK", {{V_KICK, "X...x...X...x..."}}},
       {"CLAP", {{V_SNARE, "....x.......x..."}, {V_RIM, "....x.......x..x"}}},
       {"HATS", {{V_HHO, "..x...x...x...x."}, {V_HHC, "x.x.x.x.x.x.x.x."}}},
-      {"PERC", {{V_CONGA, "..x..x....x..x.."}, {V_MAR, "xxxxxxxxxxxxxxxx"}}}},
-     {". . A2 . . . A2 . . . A2 . . . A2 .",
-      "A1 . A2 . A1 . A2 . A1 . A2 . A1 . A2 .",
-      "A2 . . A2 . . A2 . G2 . . G2 . . C3 . | A2 . . A2 . . A2 . E2 . . E2 . . G2 .",
-      ". . A2 . . . A2 . . . A2 . . . A2 . | . . F2 . . . F2 . . . G2 . . . G2 ."},
-     {". . Am7 . . . Am7 . . . Am7 . . . Am7 .",
-      "Am7 - - - - - - - - - - - - - - - | Fmaj7 - - - - - - - - - - - - - - -",
-      ". . Am7 . . Am7 . . . . Am7 . . Am7 . . | . . Dm7 . . Dm7 . . . . Dm7 . . Dm7 . .",
-      "Am7 - - - - - - - - - - - - - - - | Fmaj7 - - - - - - - - - - - - - - - | C - - - - - - - - - - - - - - - | G - - - - - - - - - - - - - - -"},
-     {"E5 . . E5 . . D5 . C5 . . A4 . . . .",
-      "A4 C5 E5 A5 E5 C5 A4 C5 E5 A5 E5 C5 A4 C5 E5 C5",
-      "A5 . . G5 . . E5 - - - . . . . . . | C5 . . D5 . . E5 - - - . . . . . .",
-      "E5 - - - - - - - D5 - - - - - - - | C5 - - - - - - - B4 - - - - - - -"},
-     {"OFFBEAT", "ROLLING", "BOUNCE", "LIFT"}, {"STABS", "PADS", "CHOP", "4 CHORDS"}, {"HOOK", "ARP", "CALL", "STRINGS"}},
+      {"PERC", {{V_CONGA, "..x..x....x..x.."}, {V_MAR, ".x.x.x.x.x.x.x.x"}}}},
+     {{"POCKET", "R..R..7.R.....5.", {"            8.7A", "        8.7.5.mA"}, "AAABAAAC"},
+      {"OFFBEAT", "..R...R...R...R.", {"          8...7A", "      8...7.5.mA"}, "AAABAAAC"},
+      {"OCTAVES", "R.8.", {"            7.5A", "        8.7.5.mA"}, "AAABAAAC"},
+      {"FUNK", "R.RR..7.R.m.4.5.", {"        8.7.5.4A", "    8.8.7.5.4.mA"}, "AAABAAAC"}},
+     {{"STABS", "..X...X...X...X."}, {"PADS", "X---------------"}, {"CHOP", "..X..X....X..X.."}, {"PUSH", "X..X..X...X....."}},
+     {{"HOOK", "5..5..4.m.....R.", {"5..5..7.8.......", "5..5..4.m.R....."}, "ABABABAC"},
+      {"ARP", "Rm58", {"Rm587585", "8758m5mR"}, "AAABAAAC"},
+      {"CALL", "8..7..5---......", {"4..5..m---......", "4..5..R---......"}, "ABABABAC"},
+      {"STRINGS", "5---------------", {"m---------------", "4-------m-------"}, "ABABABAC"}}},
     {"HIP HOP", 90, 60, 1, 3, {{30, 20, 60, 70}, {0, 10, 2, 0}},
+     "Cm7 Cm7 Abmaj7 Gm7 Cm7 Cm7 Abmaj7 G7",
      {{"KICK", {{V_KICK, "x......x..x....."}}},
       {"SNARE", {{V_SNARE, "....x.......x..."}}},
       {"HATS", {{V_HHC, "x.x.x.x.x.x.x.xx"}}},
       {"PERC", {{V_RIM, "...x......x....."}, {V_TAMB, "..x...x...x...x."}}}},
-     {"C2 . . . . . . C2 . . Eb2 . . . . .",
-      "C2 . . . . . . . G1 . . . . . Bb1 .",
-      "C2 . . . . . . C2 . . Eb2 . . . . . | F1 . . . . . . F1 . . Ab1 . . . G1 .",
-      "C2 . . C3 . . C2 . . . Bb1 . G1 . . ."},
-     {"Cm7 - - - - - - - - - - - - - - - | Fm7 - - - - - - - - - - - - - - -",
-      "Abmaj7 - - - - - - - - - - - - - - - | Gm7 - - - - - - - - - - - - - - -",
-      "Cm7 . . Cm7 . . . . . . Cm7 . . . . .",
-      "Cm7 - - - - - - - - - - - - - - - | Abmaj7 - - - - - - - - - - - - - - - | Fm7 - - - - - - - - - - - - - - - | G7 - - - - - - - - - - - - - - -"},
-     {"G4 . . Eb4 . . C4 . . . . . . . . .",
-      "C5 . Bb4 . G4 . . . Eb4 . F4 . G4 . . .",
-      "G4 - - - Bb4 - - - C5 - - - . . . . | Eb5 - - - D5 - - - C5 - - - . . . .",
-      "Eb5 - - - - - - - D5 - - - - - - - | C5 - - - - - - - Bb4 - - - - - - -"},
-     {"BOOM", "LOW", "WALK", "JUMP"}, {"SOUL", "WARM", "STABS", "4 CHORDS"}, {"HOOK", "LINE", "RISE", "LONG"}},
+     {{"LOW", "R-------L-----..", {"        L---m-A.", "        5---4-A."}, "AAABAAAC"},
+      {"CALL", "R..8..R.....5.7.", {"        7.5.4.mA", "    8.7.5.4.m.RA"}, "AAABAAAC"},
+      {"MOTOWN", "R...5...8...5.4.", {"        7...5.mA", "        8.7.5.mA"}, "AAABAAAC"},
+      {"LOW HIGH", "R...L...R..m4...", {"        R..m5.N.", "        8..75.N."}, "AAABAAAC"}},
+     {{"SOUL", "X---------------"}, {"STABS", "X..X......X....."}, {"DRAG", "....X---....X---"}, {"HALF", "X-------........"}},
+     {{"HOOK", "5..m..R.........", {"5..m..4..m.R....", "7..5..4..m.R...."}, "ABABABAC"},
+      {"LINE", "8.7.5...m.4.5...", {"8.7.5...m.4.R...", "8.7.5.4.m.R....."}, "ABABABAC"},
+      {"RISE", "R---m---4---5---", {"7---5---4---m---", "8---7---5---4---"}, "ABABABAC"},
+      {"LONG", "5---------------", {"m---------------", "4-------m-------"}, "ABABABAC"}}},
     {"DISCO", 118, 50, 2, 3, {{70, 30, 25, 40}, {1, 0, 0, 0}},
+     "Em7 A7 Em7 A7 Em7 A7 Cmaj7 B7",
      {{"KICK", {{V_KICK, "x...x...x...x..."}}},
       {"CLAP", {{V_SNARE, "....x.......x..."}}},
       {"HATS", {{V_HHO, "..x...x...x...x."}, {V_HHC, "x...x...x...x..."}}},
       {"PERC", {{V_TAMB, "x.xxx.xxx.xxx.xx"}, {V_COW, "......x.......x."}}}},
-     {"E2 . E3 . E2 . E3 . E2 . E3 . E2 . E3 .",
-      "E2 . E3 . E2 . E3 . E2 . E3 . E2 . E3 . | A1 . A2 . A1 . A2 . A1 . A2 . A1 . A2 .",
-      "E2 . . E2 . . G2 . A2 . . A2 . . B2 .",
-      "E2 . G2 . A2 . B2 . D3 . B2 . A2 . G2 ."},
-     {". . Em7 . . . Em7 . . . Em7 . . . Em7 .",
-      ". . Em7 . . Em7 . . . . Em7 . . Em7 . . | . . A . . A . . . . A . . A . .",
-      "Em7 - - - - - - - - - - - - - - - | A7 - - - - - - - - - - - - - - -",
-      "Em7 . Em7 . . Em7 . . Em7 . . . . . . ."},
-     {"B4 . . B4 . . D5 . E5 . . . . . . .",
-      "G5 - - - - - - - F#5 - - - - - - - | E5 - - - - - - - D5 - - - - - - -",
-      "E5 G5 B5 G5 E5 G5 B5 G5 E5 G5 B5 G5 E5 G5 B5 D6",
-      "E5 . G5 . A5 . G5 . E5 . D5 . B4 . D5 ."},
-     {"OCTAVES", "VAMP", "SYNCO", "WALK"}, {"STABS", "CHOP", "STRINGS", "CHIC"}, {"HOOK", "STRINGS", "ARP", "RIFF"}},
+     {{"OCTAVES", "R.8.", {"            7.5A", "        7.5.4.mA"}, "AAABAAAC"},
+      {"LADDER", "R.m.4.5.7.8.7.5.", {"        8.7.5.mA", "        8.8.7.5A"}, "AAABAAAC"},
+      {"FUNK", "R.RR..7.R.m.4.5.", {"        8.7.5.4A", "    8.8.7.5.4.mA"}, "AAABAAAC"},
+      {"PUSH", "R..8...R......N.", {"R..8...R..8.7.N.", "R..8.7.5.4.m.RN."}, "AAABAAAC"}},
+     {{"STABS", "..X...X...X...X."}, {"CHIC", "..X..X....X..X.."}, {"STRINGS", "X---------------"}, {"CHOP", "X.X..X..X......."}},
+     {{"HOOK", "5..5..7.8.......", {"8.7.5.4.m.......", "8.7.5.4.m.R....."}, "ABABABAC"},
+      {"STRINGS", "8-------7-------", {"5-------4-------", "5-------m-------"}, "ABABABAC"},
+      {"ARP", "R587", {"R58757m5", "8758m5mR"}, "AAABAAAC"},
+      {"RIFF", "R.m.4.m.R.7.R.m.", {"R.m.4.5.7.5.4.m.", "8.7.5.4.m.R.m.R."}, "ABABABAC"}}},
 };
 enum { BANKS = sizeof banks / sizeof banks[0] };
 
@@ -106,41 +108,100 @@ static int pitch_class(const char **p)
     if (**p == '#') { ++pc; ++*p; } else if (**p == 'b') { --pc; ++*p; }
     return (pc + 12) % 12;
 }
-/* the next token of a loop: returns its length, 0 at the end; skips spaces and bar lines */
-static unsigned next_token(const char **p, char *out)
+/* the progression: each bar's root (pitch class), kind (minor / major / dominant) and chord */
+enum { K_MINOR, K_MAJOR, K_DOM };
+static struct { uint8_t root, kind, note[GBX_CHORD]; } bar_chord[BARS];
+static void read_progression(const char *s)
 {
-    while (**p == ' ' || **p == '|') ++*p;
-    unsigned n = 0;
-    while (**p && **p != ' ' && **p != '|' && n < 11) out[n++] = *(*p)++;
-    out[n] = 0;
-    return n;
+    for (unsigned b = 0; b < BARS; ++b) {
+        while (*s == ' ') ++s;
+        int pc = pitch_class(&s);
+        if (pc < 0) pc = 9;
+        char q[8]; unsigned n = 0;
+        while (*s && *s != ' ' && n < 7) q[n++] = *s++;
+        q[n] = 0;
+        static const int8_t major[4] = {0, 4, 7, -1}, minor[4] = {0, 3, 7, -1}, dom7[4] = {0, 4, 7, 10},
+                            min7[4] = {0, 3, 7, 10}, maj7[4] = {0, 4, 7, 11};
+        const int8_t *iv = major; unsigned kind = K_MAJOR;
+        if (!strcmp(q, "m")) { iv = minor; kind = K_MINOR; }
+        else if (!strcmp(q, "m7")) { iv = min7; kind = K_MINOR; }
+        else if (!strcmp(q, "7")) { iv = dom7; kind = K_DOM; }
+        else if (!strcmp(q, "maj7")) iv = maj7;
+        int root = 48 + pc; if (root < 52) root += 12;   /* the middle: E3 .. D#4 */
+        bar_chord[b].root = (uint8_t)pc; bar_chord[b].kind = (uint8_t)kind;
+        for (unsigned k = 0; k < GBX_CHORD; ++k) bar_chord[b].note[k] = iv[k] < 0 ? 0 : (uint8_t)(root + iv[k]);
+    }
 }
-static unsigned tokens(const char *s, char tok[64][12])   /* up to four bars; returns how many */
+/* a degree letter over a chord of `kind`: semitones over its root (-99: not a note) */
+static int degree(char c, unsigned kind)
 {
-    unsigned n = 0;
-    while (n < 64 && next_token(&s, tok[n])) ++n;
-    return n;
+    static const int8_t pent[3][5] = {{0, 3, 5, 7, 10}, {0, 2, 4, 7, 9}, {0, 2, 4, 7, 10}};
+    switch (c) {   /* the minor pentatonic's five move to the chord's own pentatonic */
+    case 'R': return 0;
+    case 'm': return pent[kind][1];
+    case '4': return pent[kind][2];
+    case '5': return pent[kind][3];
+    case '7': return pent[kind][4];
+    case '8': return 12;
+    case 'L': return -5;
+    case '2': return 2;
+    case '3': return 4;
+    case 'b': return 6;
+    case '6': return 9;
+    default: return -99;
+    }
 }
-static int note_of(const char *t, unsigned *slide)
+/* bar b's line of a riff: the phrase (repeated to 16) with the form's variation laid over it */
+static void riff_bar(const struct riff *r, unsigned b, char line[17])
 {
-    *slide = 0;
-    if (*t == '~') { *slide = 1; ++t; }
-    int pc = pitch_class(&t);
-    if (pc < 0 || *t < '0' || *t > '8') return -1;
-    return 12 * (*t - '0' + 1) + pc;
+    unsigned n = (unsigned)strlen(r->phrase);
+    for (unsigned s = 0; s < 16; ++s) line[s] = n ? r->phrase[s % n] : '.';
+    line[16] = 0;
+    unsigned flen = r->form ? (unsigned)strlen(r->form) : 0;
+    char letter = flen ? r->form[b % flen] : 'A';
+    if (letter < 'B' || letter > 'D' || !r->var[letter - 'B']) return;
+    const char *v = r->var[letter - 'B'];
+    unsigned vn = (unsigned)strlen(v);
+    for (unsigned s = 0; s < 16 && s < vn; ++s) if (v[s] != ' ') line[s] = v[s];
+    if (vn < 16 && vn && v[0] != ' ') for (unsigned s = vn; s < 16; ++s) line[s] = v[s % vn];   /* a short variation repeats too */
 }
-static int chord_of(const char *t, uint8_t out[GBX_CHORD])
+/* a riff into the eight bars' records; `low` the register's lowest root (E1 for the bass, E4 the melody) */
+static void compile_riff(const struct riff *r, unsigned part, int low)
 {
-    int pc = pitch_class(&t);
-    if (pc < 0) return 0;
-    static const int8_t major[4] = {0, 4, 7, -1}, minor[4] = {0, 3, 7, -1}, dom7[4] = {0, 4, 7, 10}, min7[4] = {0, 3, 7, 10},
-                        maj7[4] = {0, 4, 7, 11}, dim[4] = {0, 3, 6, -1};
-    const int8_t *iv = major;
-    if (!strcmp(t, "m")) iv = minor; else if (!strcmp(t, "7")) iv = dom7; else if (!strcmp(t, "m7")) iv = min7;
-    else if (!strcmp(t, "maj7")) iv = maj7; else if (!strcmp(t, "dim")) iv = dim;
-    int root = 48 + pc; if (root < 52) root += 12;   /* the middle: E3 .. D#4 */
-    for (unsigned k = 0; k < GBX_CHORD; ++k) out[k] = iv[k] < 0 ? 0 : (uint8_t)(root + iv[k]);
-    return 1;
+    for (unsigned b = 0; b < BARS; ++b) {
+        char line[17];
+        riff_bar(r, b, line);
+        unsigned next = (b + 1U) % BARS;
+        int root = low + (int)((bar_chord[b].root + 12U - (unsigned)(low % 12)) % 12U);
+        int next_root = low + (int)((bar_chord[next].root + 12U - (unsigned)(low % 12)) % 12U);
+        struct gbx_line_steps *l = part == 1 ? &gbx_deck[b].bass : &gbx_deck[b].lead;
+        for (unsigned s = 0; s < 16; ++s) {
+            char c = line[s];
+            int note;
+            if (c == 'A') note = next_root - 1;
+            else if (c == 'N') note = next_root;
+            else { int d = degree(c, bar_chord[b].kind); if (d == -99) continue; note = root + d; }
+            unsigned held = 1;   /* itself and the holds after it (a hold stops at the bar line) */
+            for (unsigned j = s + 1U; j < 16U && line[j] == '-'; ++j) ++held;
+            unsigned gate = held > 1 ? held * 16U - 2U : part == 1 ? 12U : 10U;
+            uint16_t bit = (uint16_t)(1U << s);
+            l->note[s] = (uint8_t)note; l->gate[s] = (uint8_t)(gate > 255U ? 255U : gate); l->vel[s] = 100; l->on |= bit;
+        }
+    }
+}
+static void compile_rhythm(const struct rhythm *r)
+{
+    unsigned n = (unsigned)strlen(r->steps);
+    for (unsigned b = 0; b < BARS; ++b)
+        for (unsigned s = 0; s < 16; ++s) {
+            if (!n || r->steps[(b * 16U + s) % n] != 'X') continue;
+            unsigned held = 1;
+            for (unsigned j = s + 1U; j < 16U && r->steps[(b * 16U + j) % n] == '-'; ++j) ++held;
+            unsigned gate = held > 1 ? held * 16U - 2U : 10U;
+            struct gbx_pattern *p = &gbx_deck[b];
+            for (unsigned k = 0; k < GBX_CHORD; ++k) p->keys_note[s][k] = bar_chord[b].note[k];
+            p->keys_gate[s] = (uint8_t)(gate > 255U ? 255U : gate); p->keys_vel[s] = 92; p->keys_on |= (uint16_t)(1U << s);
+        }
 }
 
 /* ---- the deck ---- */
@@ -157,63 +218,31 @@ static const char *const part_name[PARTS] = {"BEAT", "BASS", "CHRD", "MEL"};
 static const uint8_t part_color[PARTS] = {PX_EMBER, PX_GREEN, PX_CYAN, PX_PINK};
 static int clamp(int v, int lo, int hi) { return v < lo ? lo : v > hi ? hi : v; }
 
-/* a melodic loop into the four bars' records: notes / chords, held lengths, slides */
-static void compile_line(const char *src, unsigned part)
-{
-    static char tok[64][12];
-    unsigned n = tokens(src, tok), bars = n >= 64 ? 4U : n >= 32 ? 2U : 1U;
-    if (n < 16) return;
-    for (unsigned b = 0; b < GBX_DECK_BARS; ++b) {
-        struct gbx_pattern *p = &gbx_deck[b];
-        unsigned base = (b % bars) * 16U;
-        for (unsigned s = 0; s < 16; ++s) {
-            const char *t = tok[base + s];
-            if (t[0] == '.' || t[0] == '-') continue;
-            unsigned held = 1;   /* how many steps it sounds: itself and the holds after it */
-            for (unsigned j = base + s + 1U; j < bars * 16U && tok[j][0] == '-'; ++j) ++held;
-            unsigned gate = held > 1 ? held * 16U - 2U : 10U;
-            if (gate > 255U) gate = 255U;
-            uint16_t bit = (uint16_t)(1U << s);
-            if (part == 2) {
-                uint8_t ch[GBX_CHORD];
-                if (!chord_of(t, ch)) continue;
-                for (unsigned k = 0; k < GBX_CHORD; ++k) p->keys_note[s][k] = ch[k];
-                p->keys_gate[s] = (uint8_t)gate; p->keys_vel[s] = 92; p->keys_on |= bit;
-            } else {
-                unsigned slide; int note = note_of(t, &slide);
-                if (note < 0) continue;
-                struct gbx_line_steps *l = part == 1 ? &p->bass : &p->lead;
-                l->note[s] = (uint8_t)note; l->vel[s] = 100; l->on |= bit;
-                l->gate[s] = (uint8_t)(part == 1 ? (held > 1 ? 16U : 12U) : gate);
-                if (slide) l->slide |= bit;
-            }
-        }
-    }
-}
-/* what is switched on, into the four bars the audio side plays from the next bar */
+/* what is switched on, into the eight bars the audio side plays from the next bar */
 static void compile(void)
 {
     const struct bank *k = &banks[bank];
     memset(gbx_deck, 0, sizeof gbx_deck);
+    read_progression(k->progression);
     for (unsigned j = 0; j < LOOPS; ++j) {
         if (!((want >> j) & 1U)) continue;
         for (unsigned r = 0; r < ROWS; ++r) {
             const char *row = k->beat[j].row[r].steps;
             if (!row) continue;
-            unsigned len = (unsigned)strlen(row), bars = len >= 64 ? 4U : len >= 32 ? 2U : 1U, v = k->beat[j].row[r].voice;
-            for (unsigned b = 0; b < GBX_DECK_BARS; ++b)
+            unsigned len = (unsigned)strlen(row), v = k->beat[j].row[r].voice;
+            for (unsigned b = 0; b < BARS; ++b)
                 for (unsigned s = 0; s < 16; ++s) {
-                    char c = row[(b % bars) * 16U + s];
+                    char c = row[(b * 16U + s) % len];
                     if (c == 'x' || c == 'X') gbx_deck[b].grid[v] |= (uint16_t)(1U << s);
                     if (c == 'X') gbx_deck[b].accent |= (uint16_t)(1U << s);
                 }
         }
     }
-    for (unsigned part = 1; part < PARTS; ++part)
-        for (unsigned j = 0; j < LOOPS; ++j) {
-            if (!((want >> (4U * part + j)) & 1U)) continue;
-            compile_line(part == 1 ? k->bass[j] : part == 2 ? k->chords[j] : k->melody[j], part);
-        }
+    for (unsigned j = 0; j < LOOPS; ++j) {
+        if ((want >> (4U + j)) & 1U) compile_riff(&k->bass[j], 1, 28);     /* roots E1 .. D#2 */
+        if ((want >> (8U + j)) & 1U) compile_rhythm(&k->chords[j]);
+        if ((want >> (12U + j)) & 1U) compile_riff(&k->melody[j], 3, 64);  /* roots E4 .. D#5 */
+    }
     gbx_deck_dirty = 1;
 }
 /* the bank's sound: tempo, swing, the bass, the synths' patches */
@@ -242,10 +271,10 @@ static void apply(void)
     if (pads & 8U) perf |= CR78_PERF_REV;
     cr78.roll_len = 1; cr78.roll_fade = 1; cr78.perf = (uint8_t)perf;
     cr78.swing_q16 = (int32_t)((knob[2] - 50) * 4 * 65536 / 100);
-    cr78.level = 10300; cr78.muted = 0; cr78.voice_mute = 0;
-    gbx_bass.level = 14500; gbx_bass.muted = 0; gbx_bass.armed = 1;
+    cr78.level = 8800; cr78.muted = 0; cr78.voice_mute = 0;
+    gbx_bass.level = 13000; gbx_bass.muted = 0; gbx_bass.armed = 1;
     gbx_keys.muted = 0; gbx_keys.armed = 1; gbx_keys.strum = 0; mysynth_params.duck = 18000;
-    gbx_lead.muted = 0; gbx_lead.armed = 1; mysynth_lead_params.duck = 19000;
+    gbx_lead.muted = 0; gbx_lead.armed = 1; mysynth_lead_params.duck = 22500;
 }
 void deck_release(void)
 {
@@ -256,6 +285,10 @@ void deck_release(void)
 unsigned deck_active(void) { return active; }
 
 /* ---- the screen ---- */
+static const char *loop_name(const struct bank *k, unsigned part, unsigned j)
+{
+    return part == 0 ? k->beat[j].name : part == 1 ? k->bass[j].name : part == 2 ? k->chords[j].name : k->melody[j].name;
+}
 static void draw(uint32_t now)
 {
     const struct bank *k = &banks[bank];
@@ -284,18 +317,16 @@ static void draw(uint32_t now)
             else { px_rect(x, y, 4, 1, PX_DUSK); px_rect(x, y + 15, 4, 1, PX_DUSK); px_rect(x, y, 1, 16, PX_DUSK); px_rect(x + 3, y, 1, 16, PX_DUSK); }
         }
     }
-    /* the loop just touched, by name; the bar of four and the beat */
+    /* the loop just touched, by name; the eight bars and the beat */
     static unsigned shown = 255;
     for (unsigned b = 0; b < 16; ++b) if (((want ^ playing) >> b) & 1U) shown = b;
     if (shown < 16) {
-        unsigned part = shown / 4U, j = shown % 4U;
-        const char *name = part == 0 ? k->beat[j].name : part == 1 ? k->bass_name[j] : part == 2 ? k->chords_name[j] : k->melody_name[j];
-        char line[24]; strcpy(line, part_name[part]); strcat(line, " "); strcat(line, name);
-        px_print(line, 2, 45, part_color[part]);
+        char line[24]; strcpy(line, part_name[shown / 4U]); strcat(line, " "); strcat(line, loop_name(k, shown / 4U, shown % 4U));
+        px_print(line, 2, 45, part_color[shown / 4U]);
     }
     if (cr78_running) {
-        for (unsigned b = 0; b < GBX_DECK_BARS; ++b) px_rect(2 + (int)b * 6, 54, 4, 3, b == gbx_deck_bar ? PX_WHITE : PX_DUSK);
-        for (unsigned q = 0; q < 4; ++q) px_rect(30 + (int)q * 6, 54, 4, 3, q == cr78_playhead / 4U ? PX_GOLD : PX_DUSK);
+        for (unsigned b = 0; b < BARS; ++b) px_rect(2 + (int)b * 5, 54, 4, 3, b == gbx_deck_bar ? PX_WHITE : PX_DUSK);
+        for (unsigned q = 0; q < 4; ++q) px_rect(48 + (int)q * 5, 54, 4, 3, q == cr78_playhead / 4U ? PX_GOLD : PX_DUSK);
     }
     px_flash_draw(now);
 }

@@ -72,9 +72,9 @@ void gbx_pattern_take(struct gbx_pattern *p);
 void gbx_pattern_put(const struct gbx_pattern *p, unsigned what);
 void gbx_pattern_wipe(struct gbx_pattern *p, unsigned what);
 
-/* LOOP DECK borrows the tracks: while gbx_deck_on, each bar loads gbx_deck[bar of 4] into them
- * (no pattern switching or chains); gbx_deck_dirty (stopped) loads the first bar at once. */
-enum { GBX_DECK_BARS = 4 };
+/* LOOP DECK borrows the tracks: while gbx_deck_on, each bar loads gbx_deck[bar] into them, bar
+ * of 8 (no pattern switching or chains); gbx_deck_dirty (stopped) loads the first bar at once. */
+enum { GBX_DECK_BARS = 8 };   /* (a power of two) */
 extern struct gbx_pattern gbx_deck[GBX_DECK_BARS];
 extern volatile uint8_t gbx_deck_on, gbx_deck_bar, gbx_deck_dirty;
 /* gbx.c's helpers, for LOOP DECK: the pads on an effect chain (returns its bits), the bass sound from

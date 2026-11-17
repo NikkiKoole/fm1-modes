@@ -247,7 +247,7 @@ static FM1_AUDIO_CODE void lead_clock(unsigned s, uint32_t len, uint32_t delay)
 FM1_AUDIO_CODE void gbx_clock(unsigned s, unsigned tempo)
 {
     struct gbx_line *b = &gbx_bass;
-    if (!s && gbx_deck_on) {   /* LOOP DECK: the next of its four bars, as it is now */
+    if (!s && gbx_deck_on) {   /* LOOP DECK: the next of its bars, as it is now */
         unsigned bar = restarted ? 0U : (gbx_deck_bar + 1U) & (GBX_DECK_BARS - 1U);
         restarted = 0; gbx_deck_dirty = 0; gbx_deck_bar = (uint8_t)bar;
         pattern_load(&gbx_deck[bar]);
