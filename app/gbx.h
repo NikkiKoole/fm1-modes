@@ -41,6 +41,14 @@ int gbx_audition(unsigned note);
 /* Control task: play a lead note now, for `gate` samples (0 queued, -1 full). */
 int gbx_lead_audition(unsigned note, uint32_t gate);
 
+/* Patterns: 16 slots, each all four tracks' steps (the sounds are shared). The tracks above are the
+ * pattern playing; a queued pattern takes over at the next bar (at once when stopped): the audio side
+ * stores the playing one back into its slot and loads the next, or with `keep` carries the playing
+ * one into the new slot as it is (a fresh slot starts as a copy). */
+enum { GBX_PATTERNS = 16, GBX_NONE = 255 };
+extern volatile uint8_t gbx_pattern_now, gbx_pattern_next;
+void gbx_pattern_queue(unsigned p, unsigned keep);
+
 int gbx_control(const struct fm1_controls *controls);
 unsigned gbx_active(void);
 #endif

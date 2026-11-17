@@ -14,8 +14,10 @@
  *   KNOB 1-4          its sound (SELECT: pages)
  *   REC               live: the black keys play and write into the step playing
  *   FX tapped / held  mute / throw an effect on this track while held (REC too: latch)
- * Overview: four lanes; black keys 1-4 mute the tracks; white keys 1-8 the drum patterns (for now);
- * knobs MIX (TEMPO SWING FILTER PUMP), FX (DRIVE CRUSH GATE SWEEP), LEVELS, KEY (ROOT SCALE). */
+ * Overview: four lanes; black keys 1-4 mute the tracks; white keys the 16 patterns (all four tracks'
+ * steps; from the next bar; an empty one starts as a copy of the one playing); PRESETS a drum pattern
+ * into the pattern playing; knobs MIX (TEMPO SWING FILTER PUMP), FX (DRIVE CRUSH GATE SWEEP), LEVELS,
+ * KEY (ROOT SCALE). */
 #include "gbx.h"
 #include "pixel.h"
 #include "cr78.h"
@@ -76,7 +78,7 @@ static unsigned lead_oct = 4, lead_note = 69;  /* the black keys' octave; the no
 static int16_t keys_size = 3, keys_strum = 0;  /* notes in a chord (3 triad, 4 seventh); ms between them */
 static const struct px_page keys_chord_page = {"CHORD", {"SIZE", "STRM", "", ""}};
 static uint32_t prev_buttons, prev_keys, last_ms, led_state;
-static uint16_t held_steps;
+static uint16_t held_steps, patterns_used = 1;   /* the slots that hold a pattern (1 plays at power-on) */
 
 static int clamp(int v, int lo, int hi) { return v < lo ? lo : v > hi ? hi : v; }
 static float exp2_approx(float x)
@@ -410,7 +412,7 @@ static void draw(uint32_t now)
     }
     px_print(mode, 2, 1, tint);   /* the track's colour on its name */
     /* the line under the header: what is selected, and what is going on */
-    char line[16];
+    char line[24];
     if (zoom == T_DRUMS) px_print(cr78_voice_name(voice), 2, 8, cr78_voice_color(voice));
     else if (zoom == T_BASS) {
         note_text(bass_note, line); strcat(line, " "); strcat(line, pitch_name[mix_val[3][0]]); strcat(line, " "); strcat(line, scale_name[mix_val[3][1]]);
@@ -422,7 +424,11 @@ static void draw(uint32_t now)
     } else if (zoom == T_LEAD) {
         note_text(lead_note, line); strcat(line, " "); strcat(line, mysynth_patch_name(mysynth_lead_patch_index()));
         px_print(line, 2, 8, PX_PINK);
-    } else if (zoom == OVERVIEW) px_print(cr78_preset_name(cr78_preset_index()), 2, 8, PX_SLATE);
+    } else if (zoom == OVERVIEW) {   /* the pattern playing, and the one queued */
+        strcpy(line, "PATTERN "); px_number(gbx_pattern_now + 1, line + 8);
+        if (gbx_pattern_next != GBX_NONE) { strcat(line, " NEXT "); px_number(gbx_pattern_next + 1, line + strlen(line)); }
+        px_print(line, 2, 8, gbx_pattern_next != GBX_NONE ? PX_GOLD : PX_SLATE);
+    }
     if (rec) px_print("REC", PX_W - 13, 8, PX_RED);
     else if (zoom >= 0 && muted[zoom]) px_print("MUTE", PX_W - 17, 8, PX_RED);
     else if (pads_latched[scope()]) {
@@ -447,7 +453,10 @@ static void leds(uint32_t now)
             if (cr78_running && s == cr78_playhead) on = !on || ((now / 60U) & 1U);
             if (on) want |= 1U << s;
         }
-    else if (zoom == OVERVIEW) want |= 1U << cr78_preset_index();   /* the pattern playing */
+    else if (zoom == OVERVIEW) {   /* the pattern playing; the one queued blinking */
+        want |= 1U << gbx_pattern_now;
+        if (gbx_pattern_next != GBX_NONE && ((now / 120U) & 1U)) want |= 1U << gbx_pattern_next;
+    }
     want |= key_lit() << 16;
     for (unsigned s = 0; s < 16; ++s)
         if (((want ^ led_state) >> s) & 1U) fm1_led_set(PX_KEY_LED + white_keys[s], (want >> s) & 1U);
@@ -525,8 +534,14 @@ int gbx_control(const struct fm1_controls *c)
         if (zoom != OVERVIEW && ((c->keys >> key) & 1U)) held_steps |= (uint16_t)(1U << s);
         if (!((down >> key) & 1U)) continue;
         uint16_t bit = (uint16_t)(1U << s);
-        if (zoom == OVERVIEW) {   /* a pattern (the drums' eight, for now) */
-            if (s < cr78_preset_count()) { cr78_preset(s); mix_val[0][1] = 50; px_flash(cr78_preset_name(s), now, 700U); }
+        if (zoom == OVERVIEW) {   /* a pattern, from the next bar; an empty slot starts as a copy */
+            if (s != gbx_pattern_now || gbx_pattern_next != GBX_NONE) {
+                unsigned fresh = !((patterns_used >> s) & 1U);
+                gbx_pattern_queue(s, fresh);
+                patterns_used |= bit;
+                static char t[16]; strcpy(t, "PATTERN "); px_number((int)s + 1, t + 8); if (fresh) strcat(t, " NEW");
+                px_flash(t, now, 700U);
+            }
         } else if (zoom == T_DRUMS) {
             if (c->buttons & PX_BIT(PX_ENV)) cr78.accent ^= bit;
             else {

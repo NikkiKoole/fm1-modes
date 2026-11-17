@@ -71,8 +71,78 @@ int gbx_audition(unsigned note)
     return 0;
 }
 
+/* ---- patterns ---- */
+struct line_steps { uint16_t on, slide, accent; uint8_t note[GBX_STEPS], gate[GBX_STEPS], vel[GBX_STEPS]; };
+static struct gbx_pattern {
+    uint16_t grid[CR78_VOICES], accent;
+    uint8_t ratchet[CR78_VOICES][CR78_STEPS / 2];   /* two a byte, as ratchet - 1 */
+    struct line_steps bass, lead;
+    uint16_t keys_on, keys_accent;
+    uint8_t keys_note[GBX_STEPS][GBX_CHORD], keys_gate[GBX_STEPS], keys_vel[GBX_STEPS];
+} patterns[GBX_PATTERNS];
+volatile uint8_t gbx_pattern_now, gbx_pattern_next = GBX_NONE;
+static volatile uint8_t pattern_keep;
+
+void gbx_pattern_queue(unsigned p, unsigned keep)
+{
+    if (p >= GBX_PATTERNS) return;
+    pattern_keep = (uint8_t)keep; BARRIER(); gbx_pattern_next = (uint8_t)p;
+}
+static FM1_AUDIO_CODE void line_save(struct line_steps *d, const struct gbx_line *l)
+{
+    d->on = l->on; d->slide = l->slide; d->accent = l->accent;
+    for (unsigned s = 0; s < GBX_STEPS; ++s) { d->note[s] = l->note[s]; d->gate[s] = l->gate[s]; d->vel[s] = l->vel[s]; }
+}
+static FM1_AUDIO_CODE void line_load(struct gbx_line *l, const struct line_steps *d)
+{
+    for (unsigned s = 0; s < GBX_STEPS; ++s) { l->note[s] = d->note[s]; l->gate[s] = d->gate[s]; l->vel[s] = d->vel[s]; }
+    l->slide = d->slide; l->accent = d->accent; l->on = d->on;
+}
+/* (word loops on volatile data: no memcpy into Flash) */
+static FM1_AUDIO_CODE void pattern_save(struct gbx_pattern *p)
+{
+    for (unsigned v = 0; v < CR78_VOICES; ++v) {
+        p->grid[v] = cr78.grid[v];
+        for (unsigned s = 0; s < CR78_STEPS; s += 2)
+            p->ratchet[v][s >> 1] = (uint8_t)(((cr78.ratchet[v][s] - 1U) & 15U) | (((cr78.ratchet[v][s + 1] - 1U) & 15U) << 4));
+    }
+    p->accent = cr78.accent;
+    line_save(&p->bass, &gbx_bass); line_save(&p->lead, &gbx_lead);
+    p->keys_on = gbx_keys.on; p->keys_accent = gbx_keys.accent;
+    for (unsigned s = 0; s < GBX_STEPS; ++s) {
+        for (unsigned k = 0; k < GBX_CHORD; ++k) p->keys_note[s][k] = gbx_keys.note[s][k];
+        p->keys_gate[s] = gbx_keys.gate[s]; p->keys_vel[s] = gbx_keys.vel[s];
+    }
+}
+static FM1_AUDIO_CODE void pattern_load(const struct gbx_pattern *p)
+{
+    for (unsigned v = 0; v < CR78_VOICES; ++v) {
+        for (unsigned s = 0; s < CR78_STEPS; s += 2) {
+            cr78.ratchet[v][s] = (uint8_t)((p->ratchet[v][s >> 1] & 15U) + 1U);
+            cr78.ratchet[v][s + 1] = (uint8_t)((p->ratchet[v][s >> 1] >> 4) + 1U);
+        }
+        cr78.grid[v] = p->grid[v];
+    }
+    cr78.accent = p->accent;
+    line_load(&gbx_bass, &p->bass); line_load(&gbx_lead, &p->lead);
+    for (unsigned s = 0; s < GBX_STEPS; ++s) {
+        for (unsigned k = 0; k < GBX_CHORD; ++k) gbx_keys.note[s][k] = p->keys_note[s][k];
+        gbx_keys.gate[s] = p->keys_gate[s]; gbx_keys.vel[s] = p->keys_vel[s];
+    }
+    gbx_keys.accent = p->keys_accent; gbx_keys.on = p->keys_on;
+}
+static FM1_AUDIO_CODE void pattern_swap(void)
+{
+    unsigned next = gbx_pattern_next;
+    if (next >= GBX_PATTERNS) return;
+    pattern_save(&patterns[gbx_pattern_now]);
+    if (!pattern_keep) pattern_load(&patterns[next]);
+    gbx_pattern_now = (uint8_t)next; gbx_pattern_next = GBX_NONE;
+}
+
 FM1_AUDIO_CODE void gbx_tick(void)
 {
+    if (!cr78_running) pattern_swap();   /* stopped: at once */
     while (chord_tail != chord_head) {
         uint32_t tail = chord_tail; BARRIER();
         if (chord_auditions[tail].to == TO_LEAD) {
@@ -123,6 +193,7 @@ static FM1_AUDIO_CODE void lead_clock(unsigned s, uint32_t len, uint32_t delay)
 FM1_AUDIO_CODE void gbx_clock(unsigned s, unsigned tempo)
 {
     struct gbx_line *b = &gbx_bass;
+    if (!s) pattern_swap();   /* a queued pattern, on the bar (before any track reads this step) */
     if (!dv.ready || tempo > 300U) return;
     {   /* KEYS, LEAD */
         uint32_t len = dv.step_samples[tempo];
