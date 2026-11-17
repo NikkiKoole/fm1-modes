@@ -278,6 +278,9 @@ unsigned groove_drum_note(unsigned drum);
 int groove_drum_index(unsigned note);
 void groove_screen_init(void);
 void groove_screen_control(void);
+struct fm1_controls;
+int game_control(const struct fm1_controls *controls); /* app/game.c */
+unsigned game_active(void);
 
 /* Control-side editing. Undo swaps one complete snapshot; no audio allocation. */
 void groove_edit_init(void);

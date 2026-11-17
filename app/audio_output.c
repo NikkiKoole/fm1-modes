@@ -2,6 +2,10 @@
 #include "audio_output.h"
 #include "fm1_engine_control.h"
 #include "fm1_audio_io.h"
+#include "mysynth.h"
+#include "cr78.h"
+#include "rhythm.h"
+#include "bass.h"
 
 static unsigned output_gain;
 static int32_t usb_pcm[FM1_BLOCK_WORDS] __attribute__((aligned(32)));
@@ -19,6 +23,11 @@ static inline __attribute__((always_inline)) int32_t limit(int64_t value)
 FM1_AUDIO_CODE void fm1_output_mix(int32_t *output)
 {
     if (!output) return;
+    mysynth_render(output); /* APP-owned voices on top of the sealed engine */
+    cr78_tick();            /* drum sequencers queue hits on the shared drum engine */
+    rhythm_tick();
+    bass_tick();            /* the bass player follows the harmony on the same engine */
+    dv_output(output);
     unsigned target = fm1_engine_output_level();
     if (target > 127U) target = 127U;
     int delta = (int)target - (int)output_gain;

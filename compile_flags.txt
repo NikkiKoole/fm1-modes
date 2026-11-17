@@ -1,0 +1,9 @@
+-std=c11
+-DFM1_HOST_TEST
+-DFM1_OPEN_WEB
+-Iweb/engine
+-Iweb/synth
+-Ithird_party/synth
+-Isdk/include
+-Iapp/synth
+-Iapp

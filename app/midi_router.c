@@ -1,4 +1,6 @@
 /* SPDX-License-Identifier: GPL-3.0-only WITH GPL-3.0-linking-exception */
+#include "cr78.h"
+#include "bass.h"
 #include "instrument.h"
 #include "fm1_engine_control.h"
 #include <string.h>
@@ -122,6 +124,7 @@ static FM1_AUDIO_CODE void enqueue(unsigned lane, unsigned owner, unsigned ports
 }
 FM1_AUDIO_CODE void groove_midi_note(unsigned track, unsigned note, unsigned velocity)
 {
+    bass_hear_sequence(track, note, velocity);   /* the bass player listens to every sequenced note */
     if (!groove_midi_mode(track)) return;
     unsigned ch = (config.channel[track >> 1] >> (4U * (track & 1U))) & 15U;
     enqueue(track & 1U, track, config.flags & 7U, (velocity ? 0x90U : 0x80U) | ch, note, velocity);
@@ -130,6 +133,7 @@ FM1_AUDIO_CODE void groove_midi_track_reset(unsigned track)
 { enqueue(track & 1U, track, config.flags & 7U, 0xf6, 0, 0); }
 FM1_AUDIO_CODE void groove_midi_transport(unsigned owner, uint8_t status)
 {
+    if (!owner) cr78_transport(status);   /* CR-78 starts/stops on this exact block */
     if (owner || !(config.flags & CLOCK_OUT) || groove_clock_mode()) return;
     if (status == 0xfa || status == 0xff) {
         clock_phase = resume_phase = 0; clock_first = resume_first = 1;
@@ -147,6 +151,7 @@ FM1_AUDIO_CODE void groove_midi_transport(unsigned owner, uint8_t status)
 }
 FM1_AUDIO_CODE void groove_midi_clock(unsigned owner, unsigned tempo)
 {
+    if (!owner) cr78_clock(tempo);        /* called once per block with the live tempo */
     if (owner || !(config.flags & CLOCK_OUT) || groove_clock_mode()) return;
     enum { PERIOD = FM1_SAMPLE_RATE * 60U };
     if (clock_first || clock_phase >= PERIOD) {
@@ -286,6 +291,12 @@ int groove_midi_local(const uint8_t *m, size_t n)
     /* An Off/unmapped channel is intentionally silent, not a queue failure.
      * The panel interprets failure as a lost key and performs a global reset. */
     if (!targets) return 0;
+    if (n == 3 && (m[0] & 0xe0U) == 0x80U) {   /* panel notes on melodic tracks: the bass player hears them */
+        unsigned melodic = 0;
+        for (unsigned t = 0; t < GROOVE_TRACKS; ++t)
+            if ((targets >> t) & 1U) { unsigned type = groove_source_type(t); melodic |= type != GROOVE_808 && type != GROOVE_SAMPLE; }
+        if (melodic) bass_hear_local(m[1], (m[0] & 0xf0U) == 0x90U ? m[2] : 0);
+    }
     int result = (config.flags & LOCAL_OFF) ? 0 : fm1_midi_post(m, n);
     if (result) { groove_midi_panic(); return result; }
     if (!(config.flags & LIVE_OUT)) return 0;
@@ -321,6 +332,8 @@ void fm1_app_midi_received(unsigned source, const uint8_t *m, size_t n)
     if (source >= 3 || !m || !n || n > 3) return;
     unsigned clock = m[0] == 0xf8 || m[0] == 0xfa || m[0] == 0xfb || m[0] == 0xfc || m[0] == 0xf2;
     if (clock && !groove_midi_clock_accept(source, m[0])) return;
+    if (n == 3 && (m[0] & 0xe0U) == 0x80U && (m[0] & 15U) != 9U)   /* external notes, not the drum channel */
+        bass_hear_external(m[1], (m[0] & 0xf0U) == 0x90U ? m[2] : 0);
     (void)fm1_midi_post(m, n);
     if (m[0] == 0xff) enqueue(2, 0, (config.flags | config.thru) & 7U, 0xff, 0, 0);
     if (((config.thru >> 3) & 3U) == source && m[0] != 0xff && (m[0] < 0xf0 || clock)) {

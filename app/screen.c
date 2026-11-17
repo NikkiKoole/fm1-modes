@@ -3,6 +3,10 @@
 #include "fm_patch.h"
 #include "version.h"
 #include "fm1_engine_control.h"
+#include "mysynth.h"
+#include "cr78.h"
+#include "rhythm.h"
+#include "bass.h"
 #include <string.h>
 enum {
     BACK = 0x0000,
@@ -2565,6 +2569,23 @@ void groove_screen_control(void)
 {
     struct fm1_controls controls;
     fm1_controls_read(&controls);
+    /* Full-screen modes own the panel while they run:
+     * STARFALL (app/game.c, HOME+ARP), MY SYNTH (app/mysynth.c, HOME+ENV)
+     * CR-78 (app/cr78.c, HOME+LFO), RHYTHM BOX (app/rhythm.c, HOME+SCL)
+     * and BASS PLAYER (app/bass.c, HOME+EDIT). */
+    unsigned mode_open = game_active() || mysynth_active() || cr78_active() || rhythm_active() || bass_active();
+    int game = 0;
+    if (!mode_open || game_active()) game = game_control(&controls);
+    if (!game && (!mode_open || mysynth_active())) game = mysynth_control(&controls);
+    if (!game && (!mode_open || cr78_active())) game = cr78_control(&controls);      /* HOME+LFO */
+    if (!game && (!mode_open || rhythm_active())) game = rhythm_control(&controls);  /* HOME+SCL */
+    if (!game && (!mode_open || bass_active())) game = bass_control(&controls);      /* HOME+EDIT */
+    if (game) {
+        previous_buttons = controls.buttons; previous_keys = controls.keys;
+        blocked_keys = controls.keys;
+        if (game == 2) { saved_cache.shown_page = ~0U; frame_ms = fm1_millis() - 33U; }
+        return;
+    }
     uint32_t now = fm1_millis(), key_down = controls.keys & ~previous_keys;
     unsigned master_changed = groove_master_update(controls.knob);
     if (master_changed && (!notice || notice == master_notice || (int32_t)(now - notice_until) >= 0)) {
@@ -2884,7 +2905,9 @@ int groove_screen_web_step(unsigned step, unsigned toggle)
 void groove_screen_snapshot(uint8_t state[8])
 {
     state[0] = (uint8_t)track;
-    state[1] = (uint8_t)page;
+    /* Full-screen modes report HOME so the browser preview treats keys as
+     * playable and starts its audio on the first press. */
+    state[1] = (uint8_t)(mysynth_active() || game_active() || cr78_active() || rhythm_active() || bass_active() ? OVERVIEW : page);
     state[2] = (uint8_t)cursor;
     state[3] = (uint8_t)drum;
     state[4] = (uint8_t)writing;
