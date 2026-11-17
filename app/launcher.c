@@ -16,6 +16,7 @@
 #include "mysynth.h"
 #include "fx.h"
 #include "gbx.h"
+#include "deck.h"
 #include "instrument.h"
 #include <string.h>
 
@@ -32,6 +33,7 @@ static const struct mode modes[PX_MODES] = {
     [PX_MODE_FX] = {"FX", "SPRING CHORUS DRIVE", "AND A KICK DUCK", fx_control, fx_active},
     [PX_MODE_GBX] = {"GROOVEBOX", "4 TRACKS ONE WAY", "", gbx_control, gbx_active},
     [PX_MODE_MINI] = {"GROOVE MINI", "KICK SNARE HAT BASS", "", gbx_mini_control, gbx_mini_active},
+    [PX_MODE_DECK] = {"LOOP DECK", "TOGGLE LOOPS LIVE", "", deck_control, deck_active},
     [PX_MODE_GAME] = {"STARFALL", "CATCH STARS", "WITH THE KEYS", game_control, game_active},
 };
 
@@ -45,8 +47,9 @@ static void draw(void)
 {
     px_cls(PX_NIGHT);
     px_print("MODES", 2, 1, PX_GOLD);
-    for (unsigned i = 0; i < PX_MODES; ++i) {
-        int y = 8 + (int)i * 6;
+    unsigned first = selected > 7U ? selected - 7U : 0U;   /* eight rows show; the list scrolls */
+    for (unsigned i = first; i < PX_MODES && i < first + 8U; ++i) {
+        int y = 8 + (int)(i - first) * 6;
         unsigned on = i == selected;
         if (on) px_rect(0, y - 1, PX_W, 6, PX_DUSK);
         px_print(modes[i].name, 6, y, on ? PX_WHITE : PX_SLATE);

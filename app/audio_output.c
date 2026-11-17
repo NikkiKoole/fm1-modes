@@ -39,6 +39,10 @@ FM1_AUDIO_CODE void fm1_output_mix(int32_t *output)
     mysynth_render(bus[FX_SYNTH]);
     mysynth_lead_render(bus[FX_RHYTHM]);   /* the GROOVEBOX's LEAD */
     dv_render(bus);
+    if (gbx_deck_on) {   /* LOOP DECK is an instrument of its own: the stock song does not play under it */
+        volatile int32_t *o = output;
+        for (unsigned i = 0; i < FM1_BLOCK_WORDS; ++i) o[i] = 0;
+    }
     fx_mix(output, bus);
     unsigned target = fm1_engine_output_level();
     if (target > 127U) target = 127U;

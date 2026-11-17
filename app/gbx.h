@@ -72,6 +72,20 @@ void gbx_pattern_take(struct gbx_pattern *p);
 void gbx_pattern_put(const struct gbx_pattern *p, unsigned what);
 void gbx_pattern_wipe(struct gbx_pattern *p, unsigned what);
 
+/* LOOP DECK borrows the tracks: while gbx_deck_on, each bar loads gbx_deck[bar of 4] into them
+ * (no pattern switching or chains); gbx_deck_dirty (stopped) loads the first bar at once. */
+enum { GBX_DECK_BARS = 4 };
+extern struct gbx_pattern gbx_deck[GBX_DECK_BARS];
+extern volatile uint8_t gbx_deck_on, gbx_deck_bar, gbx_deck_dirty;
+/* gbx.c's helpers, for LOOP DECK: the pads on an effect chain (returns its bits), the bass sound from
+ * the BASS track's knob values ({CUT RES DEC SUB}, {WAVE DRV ATK PTCH}), a filter coefficient. */
+struct fx_perf;
+int32_t gbx_throw_pads(struct fx_perf *p, uint32_t pads);
+void gbx_bass_sound(const int16_t values[2][4]);
+int32_t gbx_svf(float hz);
+float gbx_exp2(float x);
+void deck_release(void);   /* deck.c: gives the tracks and MY SYNTH's sounds back (GROOVEBOX opening) */
+
 int gbx_control(const struct fm1_controls *controls);
 unsigned gbx_active(void);
 int gbx_mini_control(const struct fm1_controls *controls);   /* GROOVE MINI */

@@ -119,7 +119,7 @@ static void chord_text(const volatile uint8_t *n, char *out)   /* A- minor, B0 d
 }
 
 /* ---- the bass voice: a plucked wave through a lowpass, over a sine an octave down ---- */
-static void build_bass(void)
+static void build_bass_from(const int16_t bass_val[BASS_PAGES][4])
 {
     static const uint8_t waves[3] = {DV_SINE, DV_TRI, DV_SQUARE};
     float hz = 120.0f + (float)(bass_val[0][0] * bass_val[0][0]) * 0.45f;   /* 120 Hz .. 4.6 kHz */
@@ -137,6 +137,7 @@ static void build_bass(void)
     if (bass_val[0][3]) dv_build_part(&next.part[1], &low, 0, 1.0f);
     gbx_bass.voice = next;
 }
+static void build_bass(void) { build_bass_from(bass_val); }
 
 /* ---- the pads: a fixed throw each, on top of whatever is set; returns the effect bits they add ---- */
 static int32_t throw_pads(struct fx_perf *p, uint32_t pads)
@@ -767,6 +768,10 @@ unsigned gbx_mini_active(void) { return active && mini; }
 static void enter(unsigned as_mini, uint32_t now)
 {
     mini = as_mini;
+    if (gbx_deck_on) {   /* LOOP DECK had the tracks: our song and sounds back */
+        deck_release();
+        if (initialized) { gbx_pattern_put(&gbx_patterns[gbx_pattern_now], GBX_ALL); build_bass(); }
+    }
     cr78_kit_ready();
     mysynth_ready();
     mysynth_lead_ready();
@@ -1063,3 +1068,9 @@ static int control(const struct fm1_controls *c, unsigned as_mini)
 }
 int gbx_control(const struct fm1_controls *c) { return control(c, 0); }
 int gbx_mini_control(const struct fm1_controls *c) { return control(c, 1); }
+
+/* ---- helpers for LOOP DECK ---- */
+int32_t gbx_throw_pads(struct fx_perf *p, uint32_t pads) { return throw_pads(p, pads); }
+void gbx_bass_sound(const int16_t values[2][4]) { build_bass_from(values); }
+int32_t gbx_svf(float hz) { return svf_f(hz); }
+float gbx_exp2(float x) { return exp2_approx(x); }

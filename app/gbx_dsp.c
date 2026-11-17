@@ -76,7 +76,9 @@ struct gbx_pattern gbx_patterns[GBX_PATTERNS];
 volatile uint8_t gbx_pattern_now, gbx_pattern_next = GBX_NONE;
 volatile uint16_t gbx_patterns_used = 1;
 volatile uint8_t gbx_chain[GBX_CHAIN_MAX], gbx_chain_len = 1, gbx_chain_pos;
-static unsigned restarted = 1;   /* the transport just started: the first bar plays the chain's first slot */
+static unsigned restarted = 1;
+struct gbx_pattern gbx_deck[GBX_DECK_BARS];
+volatile uint8_t gbx_deck_on, gbx_deck_bar, gbx_deck_dirty;   /* the transport just started: the first bar plays the chain's first slot */
 
 void gbx_pattern_queue(unsigned p) { if (p < GBX_PATTERNS) gbx_pattern_next = (uint8_t)p; }
 void gbx_chain_set(const uint8_t *slots, unsigned n)
@@ -188,7 +190,11 @@ void gbx_pattern_wipe(struct gbx_pattern *p, unsigned what)
 
 FM1_AUDIO_CODE void gbx_tick(void)
 {
-    if (!cr78_running) { restarted = 1; pattern_swap(); }   /* stopped: at once */
+    if (!cr78_running) {   /* stopped: at once */
+        restarted = 1;
+        if (!gbx_deck_on) pattern_swap();
+        else if (gbx_deck_dirty) { gbx_deck_dirty = 0; gbx_deck_bar = 0; pattern_load(&gbx_deck[0]); }
+    }
     while (chord_tail != chord_head) {
         uint32_t tail = chord_tail; BARRIER();
         if (chord_auditions[tail].to == TO_LEAD) {
@@ -241,7 +247,11 @@ static FM1_AUDIO_CODE void lead_clock(unsigned s, uint32_t len, uint32_t delay)
 FM1_AUDIO_CODE void gbx_clock(unsigned s, unsigned tempo)
 {
     struct gbx_line *b = &gbx_bass;
-    if (!s) {   /* on the bar, before any track reads this step: a queued pattern, or the chain's next */
+    if (!s && gbx_deck_on) {   /* LOOP DECK: the next of its four bars, as it is now */
+        unsigned bar = restarted ? 0U : (gbx_deck_bar + 1U) & (GBX_DECK_BARS - 1U);
+        restarted = 0; gbx_deck_dirty = 0; gbx_deck_bar = (uint8_t)bar;
+        pattern_load(&gbx_deck[bar]);
+    } else if (!s) {   /* on the bar, before any track reads this step: a queued pattern, or the chain's next */
         if (gbx_pattern_next == GBX_NONE && gbx_chain_len > 1 && !restarted) {
             unsigned pos = gbx_chain_pos + 1U;
             if (pos >= gbx_chain_len) pos = 0;
