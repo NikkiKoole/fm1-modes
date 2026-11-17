@@ -57,7 +57,6 @@ static float sin_small(float x)                 /* |x| <= ~1 */
     float x2 = x * x;
     return x * (1.0f - x2 / 6.0f * (1.0f - x2 / 20.0f * (1.0f - x2 / 42.0f)));
 }
-static float unit(unsigned parameter) { return (float)value[parameter] / 127.0f; }
 /* per-block multiplier for an exponential with time constant `seconds` */
 static int32_t block_decay(float seconds)
 {
@@ -75,25 +74,28 @@ static void build_ftab(void)
         mysynth_params.ftab[i] = (int32_t)(f * 32768.0f);
     }
 }
-static void apply(void)
+/* a sound's knob values -> its coefficients (MY SYNTH's own, or the LEAD's) */
+static void apply_to(const uint8_t *val, struct mysynth_params *p)
 {
-    struct mysynth_params *p = &mysynth_params;
+#define unit(x) ((float)val[x] / 127.0f)
     float d = unit(DETUNE);
     float cents = 40.0f * d * d;
     p->wave = (int32_t)(unit(WAVE) * 32767.0f);
     p->detune = (int32_t)((exp2_approx(cents / 1200.0f) - 1.0f) * 65536.0f);
-    p->cutoff = value[CUTOFF] * 2;
+    p->cutoff = val[CUTOFF] * 2;
     p->damping = (int32_t)((1.4f - 1.34f * unit(RESO)) * 32768.0f);
-    p->envmod = value[ENVMOD] * 3 / 2;
+    p->envmod = val[ENVMOD] * 3 / 2;
     float attack = 0.001f * exp2_approx(unit(ATTACK) * 11.0f);          /* 1 ms .. 2 s */
     float blocks = attack * 44100.0f / (float)FM1_BLOCK_FRAMES;
     p->attack = blocks < 1.0f ? (1 << 30) : (int32_t)((float)(1 << 30) / blocks);
     p->decay = block_decay(0.02f * exp2_approx(unit(DECAY) * 7.2f));     /* 20 ms .. 3 s */
     p->sustain = (int32_t)(unit(SUSTAIN) * (float)(1 << 30));
     p->release = block_decay(0.005f * exp2_approx(unit(RELEASE) * 9.2f)); /* 5 ms .. 3 s */
-    int level = value[LEVEL] * 260;
+    int level = val[LEVEL] * 260;
     p->level = level > 32767 ? 32767 : level;
+#undef unit
 }
+static void apply(void) { apply_to(value, &mysynth_params); }
 static void note_on(unsigned key)
 {
     int note = PX_FIRST_NOTE + (int)key + 12 * octave;
@@ -257,3 +259,47 @@ unsigned mysynth_patch_count(void) { return PATCHES; }
 unsigned mysynth_patch_index(void) { return patch; }
 const char *mysynth_patch_name(unsigned p) { return patches[p % PATCHES].name; }
 void mysynth_patch(unsigned p) { patch = p % PATCHES; memcpy(value, patches[patch].value, sizeof value); apply(); }
+
+/* ---- the LEAD's own sound: the same pages and patches, GLIDE in place of OCTAVE ---- */
+static const struct px_page lead_pages[PAGES] = {
+    {"OSC", {"WAVE", "DTUN", "GLDE", "LVL"}},
+    {"FILTER", {"CUT", "RES", "ENV", ""}},
+    {"AMP", {"ATK", "DEC", "SUS", "REL"}},
+};
+static uint8_t lead_value[PARAMS], lead_glide = 40;
+static unsigned lead_patch = 5, lead_initialized;   /* LEAD */
+static void lead_apply(void)
+{
+    apply_to(lead_value, &mysynth_lead_params);
+    /* glide: 0 at once; else a time constant of ~4 ms .. 0.6 s */
+    mysynth_lead_params.glide = lead_glide ? 32768 - block_decay(0.004f * exp2_approx((float)lead_glide * 7.2f / 127.0f)) : 32768;
+}
+void mysynth_lead_ready(void)
+{
+    mysynth_ready();   /* (the filter table) */
+    if (!lead_initialized) {
+        memcpy(lead_value, patches[lead_patch].value, sizeof lead_value);
+        memcpy(mysynth_lead_params.ftab, mysynth_params.ftab, sizeof mysynth_lead_params.ftab);
+        lead_initialized = 1;
+    }
+    lead_apply();
+}
+const struct px_page *mysynth_lead_pages(unsigned *count) { *count = PAGES; return lead_pages; }
+void mysynth_lead_knob_text(unsigned pg, unsigned k, char *out)
+{
+    unsigned param = page_param[pg % PAGES][k & 3U];
+    if (param == OCTAVE) { if (lead_glide) px_number(lead_glide, out); else strcpy(out, "OFF"); }
+    else if (param < PARAMS) px_number(lead_value[param], out);
+    else *out = 0;
+}
+void mysynth_lead_turn(unsigned pg, unsigned k, int turn)
+{
+    unsigned param = page_param[pg % PAGES][k & 3U];
+    if (!turn || param == NONE) return;
+    uint8_t *x = param == OCTAVE ? &lead_glide : &lead_value[param];
+    int v = (int)*x + turn * 2;
+    *x = (uint8_t)(v < 0 ? 0 : v > 127 ? 127 : v);
+    lead_apply();
+}
+unsigned mysynth_lead_patch_index(void) { return lead_patch; }
+void mysynth_lead_patch(unsigned p) { lead_patch = p % PATCHES; memcpy(lead_value, patches[lead_patch].value, sizeof lead_value); lead_apply(); }

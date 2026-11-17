@@ -10,7 +10,7 @@ enum { OFF, ATTACK, DECAY, RELEASE };
 enum { QUEUE = 32 };
 static const int32_t ONE30 = 1 << 30;
 
-struct mysynth_params mysynth_params;
+struct mysynth_params mysynth_params, mysynth_lead_params;
 int16_t mysynth_scope[MYSYNTH_SCOPE];
 volatile uint32_t mysynth_scope_pos;
 
@@ -18,7 +18,8 @@ static struct voice {
     uint32_t ph1, ph2, inc, rec, age;
     int32_t velocity, env, amp, f, low, band;
     uint8_t stage, note;
-} voices[MYSYNTH_VOICES];
+} voices[MYSYNTH_VOICES], lead;
+static uint32_t lead_inc_to, lead_rec_to;   /* where the lead's pitch glides to */
 static struct { uint8_t type, note, velocity; uint32_t inc, rec; } queue[QUEUE];
 static volatile uint32_t queue_head, queue_tail; /* head: control, tail: audio */
 static uint32_t clock_age;
@@ -115,70 +116,108 @@ static FM1_AUDIO_CODE void handle_events(void)
     }
 }
 
+/* one voice's block into mix: the envelope once a block, amp and cutoff ramped across it */
+static FM1_AUDIO_CODE void render_voice(struct voice *v, const struct mysynth_params *p, int32_t *mix)
+{
+    const int32_t wave = p->wave, damping = p->damping, detune = p->detune;
+    if (v->stage == ATTACK) {
+        v->env += p->attack;
+        if (v->env >= ONE30) { v->env = ONE30; v->stage = DECAY; }
+    } else if (v->stage == DECAY) {
+        v->env = p->sustain + (int32_t)(((int64_t)(v->env - p->sustain) * p->decay) >> 15);
+    } else {
+        v->env = (int32_t)(((int64_t)v->env * p->release) >> 15);
+        if (v->env < (1 << 14)) { v->stage = OFF; v->env = 0; }
+    }
+    int32_t env15 = v->env >> 15;
+    int32_t amp_to = (int32_t)(((int64_t)env15 * v->velocity) >> 15);
+    int32_t index = p->cutoff + (int32_t)(((int64_t)p->envmod * env15) >> 15) + ((int32_t)v->note - 60);
+    int32_t f_to = p->ftab[clamp(index, 0, MYSYNTH_FTAB - 1)];
+    if (v->f < 0) v->f = f_to;
+    int32_t amp = v->amp, amp_step = (amp_to - amp) / FM1_BLOCK_FRAMES;
+    int32_t f = v->f, f_step = (f_to - f) / FM1_BLOCK_FRAMES;
+
+    uint32_t inc1 = v->inc, rec1 = v->rec;
+    uint32_t inc2 = inc1 + (uint32_t)(((uint64_t)inc1 * (uint32_t)detune) >> 16);
+    uint32_t rec2 = rec1 - (uint32_t)(((uint64_t)rec1 * (uint32_t)detune) >> 16);
+    uint32_t ph1 = v->ph1, ph2 = v->ph2;
+    int32_t low = v->low, band = v->band;
+    for (unsigned i = 0; i < FM1_BLOCK_FRAMES; ++i) {
+        int32_t in = (osc(ph1, inc1, rec1, wave) + osc(ph2, inc2, rec2, wave)) >> 2;
+        ph1 += inc1; ph2 += inc2;
+        for (unsigned k = 0; k < 2; ++k) {   /* 2x oversampled SVF */
+            low += (int32_t)(((int64_t)f * band) >> 15);
+            int32_t high = in - low - (int32_t)(((int64_t)damping * band) >> 15);
+            band += (int32_t)(((int64_t)f * high) >> 15);
+            band = clamp(band, -(1 << 20), 1 << 20);
+            low = clamp(low, -(1 << 20), 1 << 20);
+        }
+        mix[i] += (int32_t)(((int64_t)low * amp) >> 15);
+        amp += amp_step; f += f_step;
+    }
+    v->ph1 = ph1; v->ph2 = ph2; v->low = low; v->band = band;
+    v->amp = amp_to; v->f = f_to;
+}
+static FM1_AUDIO_CODE void clear(int32_t *mix)
+{   /* volatile keeps this a loop, not a memset call into Flash */
+    volatile int32_t *m = mix;
+    for (unsigned i = 0; i < FM1_BLOCK_FRAMES; ++i) m[i] = 0;
+}
+/* gain (less the duck), then a cubic soft clip: y = x - 4/27 x^3, flat beyond 1.5; into output (and the scope) */
+static FM1_AUDIO_CODE void finish(const int32_t *mix, const struct mysynth_params *p, int32_t *output, unsigned scope)
+{
+    const int32_t level = p->level - (int32_t)(((int64_t)p->level * p->duck) >> 15);
+    uint32_t pos = mysynth_scope_pos;
+    for (unsigned i = 0; i < FM1_BLOCK_FRAMES; ++i) {
+        int32_t x = clamp((int32_t)(((int64_t)mix[i] * level) >> 15), -49152, 49152);
+        int32_t y = x - (int32_t)(((((int64_t)x * x) >> 15) * x * 4855) >> 30);
+        if (scope) mysynth_scope[pos++ % MYSYNTH_SCOPE] = (int16_t)clamp(y, -32768, 32767);
+        output[i] += y;
+    }
+    if (scope) mysynth_scope_pos = pos % MYSYNTH_SCOPE;
+}
+
 FM1_AUDIO_CODE void mysynth_render(int32_t *output)
 {
     static int32_t mix[FM1_BLOCK_FRAMES];
-    struct mysynth_params *p = &mysynth_params;
     handle_events();
-    {   /* volatile keeps this a loop, not a memset call into Flash */
-        volatile int32_t *m = mix;
-        for (unsigned i = 0; i < FM1_BLOCK_FRAMES; ++i) m[i] = 0;
-    }
-    const int32_t wave = p->wave, damping = p->damping, detune = p->detune;
+    clear(mix);
     unsigned any = 0;
+    for (unsigned n = 0; n < MYSYNTH_VOICES; ++n)
+        if (voices[n].stage != OFF) { any = 1; render_voice(&voices[n], &mysynth_params, mix); }
+    if (any) finish(mix, &mysynth_params, output, 1);
+}
 
-    for (unsigned n = 0; n < MYSYNTH_VOICES; ++n) {
-        struct voice *v = &voices[n];
-        if (v->stage == OFF) continue;
-        any = 1;
-        /* envelope, once per block; amp and cutoff ramp across the block */
-        if (v->stage == ATTACK) {
-            v->env += p->attack;
-            if (v->env >= ONE30) { v->env = ONE30; v->stage = DECAY; }
-        } else if (v->stage == DECAY) {
-            v->env = p->sustain + (int32_t)(((int64_t)(v->env - p->sustain) * p->decay) >> 15);
-        } else {
-            v->env = (int32_t)(((int64_t)v->env * p->release) >> 15);
-            if (v->env < (1 << 14)) { v->stage = OFF; v->env = 0; }
-        }
-        int32_t env15 = v->env >> 15;
-        int32_t amp_to = (int32_t)(((int64_t)env15 * v->velocity) >> 15);
-        int32_t index = p->cutoff + (int32_t)(((int64_t)p->envmod * env15) >> 15) + ((int32_t)v->note - 60);
-        int32_t f_to = p->ftab[clamp(index, 0, MYSYNTH_FTAB - 1)];
-        if (v->f < 0) v->f = f_to;
-        int32_t amp = v->amp, amp_step = (amp_to - amp) / FM1_BLOCK_FRAMES;
-        int32_t f = v->f, f_step = (f_to - f) / FM1_BLOCK_FRAMES;
-
-        uint32_t inc1 = v->inc, rec1 = v->rec;
-        uint32_t inc2 = inc1 + (uint32_t)(((uint64_t)inc1 * (uint32_t)detune) >> 16);
-        uint32_t rec2 = rec1 - (uint32_t)(((uint64_t)rec1 * (uint32_t)detune) >> 16);
-        uint32_t ph1 = v->ph1, ph2 = v->ph2;
-        int32_t low = v->low, band = v->band;
-        for (unsigned i = 0; i < FM1_BLOCK_FRAMES; ++i) {
-            int32_t in = (osc(ph1, inc1, rec1, wave) + osc(ph2, inc2, rec2, wave)) >> 2;
-            ph1 += inc1; ph2 += inc2;
-            for (unsigned k = 0; k < 2; ++k) {   /* 2x oversampled SVF */
-                low += (int32_t)(((int64_t)f * band) >> 15);
-                int32_t high = in - low - (int32_t)(((int64_t)damping * band) >> 15);
-                band += (int32_t)(((int64_t)f * high) >> 15);
-                band = clamp(band, -(1 << 20), 1 << 20);
-                low = clamp(low, -(1 << 20), 1 << 20);
-            }
-            mix[i] += (int32_t)(((int64_t)low * amp) >> 15);
-            amp += amp_step; f += f_step;
-        }
-        v->ph1 = ph1; v->ph2 = ph2; v->low = low; v->band = band;
-        v->amp = amp_to; v->f = f_to;
+/* ---- the LEAD: one more voice of the same engine, mono, its own sound, gliding on slides ---- */
+FM1_AUDIO_CODE void mysynth_lead_play(unsigned note, unsigned velocity, unsigned on, unsigned slide)
+{
+    struct voice *v = &lead;
+    if (note > 127U || !dv.ready) return;
+    if (!on) {   /* only the note sounding stops: an older note's end must not cut a newer one */
+        if (v->note == note && (v->stage == ATTACK || v->stage == DECAY)) v->stage = RELEASE;
+        return;
     }
-    if (!any) return;
-    const int32_t level = p->level - (int32_t)(((int64_t)p->level * p->duck) >> 15);   /* duck: a track level from outside */
-    uint32_t pos = mysynth_scope_pos;
-    for (unsigned i = 0; i < FM1_BLOCK_FRAMES; ++i) {
-        /* gain, then a cubic soft clip: y = x - 4/27 x^3, flat beyond 1.5 */
-        int32_t x = clamp((int32_t)(((int64_t)mix[i] * level) >> 15), -49152, 49152);
-        int32_t y = x - (int32_t)(((((int64_t)x * x) >> 15) * x * 4855) >> 30);
-        mysynth_scope[pos++ % MYSYNTH_SCOPE] = (int16_t)clamp(y, -32768, 32767);
-        output[i] += y;
+    lead_inc_to = dv.note_inc[note]; lead_rec_to = dv.note_rec[note];
+    v->note = (uint8_t)note;
+    if (slide && (v->stage == ATTACK || v->stage == DECAY)) return;   /* legato: glide there, no new attack */
+    if (v->stage == OFF) { v->env = v->amp = v->low = v->band = 0; v->ph1 = 0; v->ph2 = 0x40000000U; v->f = -1; }
+    v->inc = lead_inc_to; v->rec = lead_rec_to;
+    v->velocity = (int32_t)velocity * 258;
+    v->stage = ATTACK;
+}
+FM1_AUDIO_CODE void mysynth_lead_render(int32_t *output)
+{
+    static int32_t mix[FM1_BLOCK_FRAMES];
+    struct voice *v = &lead;
+    if (v->stage == OFF) return;
+    {   /* glide: a step of the way to the target pitch each block (exponential) */
+        int32_t g = mysynth_lead_params.glide;
+        int32_t di = (int32_t)(lead_inc_to - v->inc), dr = (int32_t)(lead_rec_to - v->rec);
+        int32_t si = (int32_t)(((int64_t)di * g) >> 15), sr = (int32_t)(((int64_t)dr * g) >> 15);
+        if (!si || !sr) { v->inc = lead_inc_to; v->rec = lead_rec_to; }
+        else { v->inc += (uint32_t)si; v->rec += (uint32_t)sr; }
     }
-    mysynth_scope_pos = pos % MYSYNTH_SCOPE;
+    clear(mix);
+    render_voice(v, &mysynth_lead_params, mix);
+    finish(mix, &mysynth_lead_params, output, 0);
 }

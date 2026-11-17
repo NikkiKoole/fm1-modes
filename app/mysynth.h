@@ -27,10 +27,11 @@ struct mysynth_params {
     volatile int32_t sustain;  /* Q30 */
     volatile int32_t release;  /* Q15 per-block multiplier */
     volatile int32_t level;    /* Q15 output gain */
-    volatile int32_t duck;     /* Q15 taken off the level (the GROOVEBOX's KEYS level); 0 = none */
+    volatile int32_t duck;     /* Q15 taken off the level (the GROOVEBOX's track level); 0 = none */
+    volatile int32_t glide;    /* Q15 of the way to a new pitch each block (the LEAD's; 32768 = at once) */
     int32_t ftab[MYSYNTH_FTAB];/* Q15 SVF frequency coefficient at 2x rate */
 };
-extern struct mysynth_params mysynth_params;
+extern struct mysynth_params mysynth_params, mysynth_lead_params;   /* MY SYNTH (and KEYS); the LEAD */
 
 /* Control task -> audio ISR. Returns 0 queued, -1 full. */
 enum { MYSYNTH_NOTE_ON = 1, MYSYNTH_NOTE_OFF, MYSYNTH_ALL_OFF };
@@ -38,6 +39,10 @@ int mysynth_event(unsigned type, unsigned note, unsigned velocity, uint32_t inc,
 
 /* Audio ISR: a note on or off, from the audio side (the GROOVEBOX's KEYS track). */
 FM1_AUDIO_CODE void mysynth_play(unsigned note, unsigned velocity, unsigned on);
+/* Audio ISR: the GROOVEBOX's LEAD, one voice of the same engine with its own sound. A note on with
+ * slide while a note holds glides to it without a new attack; a note off only ends the note sounding. */
+FM1_AUDIO_CODE void mysynth_lead_play(unsigned note, unsigned velocity, unsigned on, unsigned slide);
+FM1_AUDIO_CODE void mysynth_lead_render(int32_t *bus);
 /* Audio ISR: add one block of voices into bus (mono Q15 per frame). */
 FM1_AUDIO_CODE void mysynth_render(int32_t *bus);
 /* Last MYSYNTH_SCOPE mono samples (Q15) and the next write position. */
@@ -55,6 +60,13 @@ unsigned mysynth_patch_count(void);
 unsigned mysynth_patch_index(void);
 const char *mysynth_patch_name(unsigned p);
 void mysynth_patch(unsigned p);
+/* the same for the LEAD's own sound (its OSC page has GLIDE where MY SYNTH has OCTAVE) */
+void mysynth_lead_ready(void);
+const struct px_page *mysynth_lead_pages(unsigned *count);
+void mysynth_lead_knob_text(unsigned page, unsigned k, char *out);
+void mysynth_lead_turn(unsigned page, unsigned k, int turn);
+unsigned mysynth_lead_patch_index(void);
+void mysynth_lead_patch(unsigned p);
 
 /* Panel mode, called from groove_screen_control like game_control. */
 int mysynth_control(const struct fm1_controls *controls);

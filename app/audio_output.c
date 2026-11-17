@@ -37,6 +37,7 @@ FM1_AUDIO_CODE void fm1_output_mix(int32_t *output)
     bass_tick();            /* the bass player follows the harmony on the same engine */
     gbx_tick();             /* the GROOVEBOX's auditions */
     mysynth_render(bus[FX_SYNTH]);
+    mysynth_lead_render(bus[FX_RHYTHM]);   /* the GROOVEBOX's LEAD */
     dv_render(bus);
     fx_mix(output, bus);
     unsigned target = fm1_engine_output_level();
