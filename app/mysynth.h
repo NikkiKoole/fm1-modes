@@ -6,7 +6,7 @@
  * It is integer-only, calls nothing outside itself, and never allocates, so
  * it is safe in the ISR and during Flash writes.
  *
- * Control side (mysynth.c) owns the panel while the mode is on (HOME+ENV),
+ * Control side (mysynth.c) owns the panel while the mode is on (from the launcher),
  * turns knob values into ready-to-use coefficients, and queues note events.
  * Every shared word is written whole by control and only read by audio. */
 #ifndef FM1_MYSYNTH_H
@@ -35,8 +35,8 @@ extern struct mysynth_params mysynth_params;
 enum { MYSYNTH_NOTE_ON = 1, MYSYNTH_NOTE_OFF, MYSYNTH_ALL_OFF };
 int mysynth_event(unsigned type, unsigned note, unsigned velocity, uint32_t inc, uint32_t rec);
 
-/* Audio ISR: add one block of voices into output (interleaved Q23 stereo). */
-FM1_AUDIO_CODE void mysynth_render(int32_t *output);
+/* Audio ISR: add one block of voices into bus (mono Q15 per frame). */
+FM1_AUDIO_CODE void mysynth_render(int32_t *bus);
 /* Last MYSYNTH_SCOPE mono samples (Q15) and the next write position. */
 extern int16_t mysynth_scope[MYSYNTH_SCOPE];
 extern volatile uint32_t mysynth_scope_pos;

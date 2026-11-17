@@ -1,9 +1,13 @@
 /* SPDX-License-Identifier: GPL-3.0-only WITH GPL-3.0-linking-exception */
-/* MY SYNTH panel mode. HOME+ENV toggles it.
+/* MY SYNTH panel mode, in the shared grammar: SELECT pages, the four KNOBs
+ * are labelled in the bottom bar, PRESETS loads a patch, HOME goes back.
+ *
+ *   OSC     WAVE    DETUNE  OCTAVE  LEVEL
+ *   FILTER  CUTOFF  RESO    ENV
+ *   AMP     ATTACK  DECAY   SUSTAIN RELEASE
+ *
  *   27 keys   play the synth (6 voices), their LEDs show what is held
- *   OCT -/+   octave shift, -2..+2
- *   SELECT WAVE   ALGORITHM DETUNE   KNOB 1-4 CUTOFF RESO ENV ATTACK
- *   PRESETS RELEASE   (encoder indices 0..6 in that order)
+ *   OCT -/+   octave shift, -2..+2 (the same as OSC KNOB 3)
  * While the mode is on, the keys play MY SYNTH instead of the tracks; the
  * sequencer, external MIDI and the engine keep running underneath.
  * No libm: the few curves needed here are computed with small helpers. */
@@ -11,14 +15,31 @@
 #include "pixel.h"
 #include <string.h>
 
-enum { WAVE, DETUNE, CUTOFF, RESO, ENVMOD, ATTACK, RELEASE, PARAMS };
-static const char *const names[PARAMS] = {"WAVE", "DTUN", "CUT", "RES", "ENV", "ATK", "REL"};
-static const char *const knobs[PARAMS] = {"SEL", "ALG", "K1", "K2", "K3", "K4", "PRE"};
-static const uint8_t defaults[PARAMS] = {24, 36, 64, 50, 70, 4, 50};
+enum { WAVE, DETUNE, LEVEL, CUTOFF, RESO, ENVMOD, ATTACK, DECAY, SUSTAIN, RELEASE, PARAMS, OCTAVE = PARAMS, NONE };
+enum { OSC, FILTER, AMP, PAGES };
+static const struct px_page pages[PAGES] = {
+    {"OSC", {"WAVE", "DTUN", "OCT", "LVL"}},
+    {"FILTER", {"CUT", "RES", "ENV", ""}},
+    {"AMP", {"ATK", "DEC", "SUS", "REL"}},
+};
+/* what each page's four knobs edit */
+static const uint8_t page_param[PAGES][4] = {
+    {WAVE, DETUNE, OCTAVE, LEVEL}, {CUTOFF, RESO, ENVMOD, NONE}, {ATTACK, DECAY, SUSTAIN, RELEASE}};
+/* patches (PRESETS): WAVE DTUN LVL  CUT RES ENV  ATK DEC SUS REL */
+struct patch { const char *name; uint8_t value[PARAMS]; };
+static const struct patch patches[] = {
+    {"INIT", {24, 36, 100, 64, 50, 70, 4, 73, 76, 50}},
+    {"PAD", {30, 90, 100, 50, 30, 40, 90, 90, 100, 100}},
+    {"BRASS", {10, 40, 100, 40, 40, 90, 30, 60, 90, 50}},
+    {"PLUCK", {60, 20, 100, 30, 70, 110, 0, 45, 0, 55}},
+    {"BASS", {100, 10, 110, 30, 80, 80, 0, 50, 60, 30}},
+    {"LEAD", {127, 60, 95, 80, 60, 50, 6, 70, 100, 45}},
+};
+enum { PATCHES = sizeof patches / sizeof patches[0] };
 static uint8_t value[PARAMS];
 static uint8_t held_note[PX_KEYS];
 static int octave;
-static unsigned active, initialized, frame, touched = PARAMS, full_redraw;
+static unsigned active, initialized, frame, touched = NONE, full_redraw, page, patch;
 static uint32_t prev_buttons, prev_keys, last_ms, touched_at;
 
 /* ---- tiny float helpers (control task only) ---- */
@@ -67,10 +88,11 @@ static void apply(void)
     float attack = 0.001f * exp2_approx(unit(ATTACK) * 11.0f);          /* 1 ms .. 2 s */
     float blocks = attack * 44100.0f / (float)FM1_BLOCK_FRAMES;
     p->attack = blocks < 1.0f ? (1 << 30) : (int32_t)((float)(1 << 30) / blocks);
-    p->decay = block_decay(0.35f);
-    p->sustain = (int32_t)(0.6f * (float)(1 << 30));
+    p->decay = block_decay(0.02f * exp2_approx(unit(DECAY) * 7.2f));     /* 20 ms .. 3 s */
+    p->sustain = (int32_t)(unit(SUSTAIN) * (float)(1 << 30));
     p->release = block_decay(0.005f * exp2_approx(unit(RELEASE) * 9.2f)); /* 5 ms .. 3 s */
-    p->level = 26000;
+    int level = value[LEVEL] * 260;
+    p->level = level > 32767 ? 32767 : level;
 }
 static void note_on(unsigned key)
 {
@@ -91,31 +113,40 @@ static void note_off(unsigned key)
 }
 
 /* ---- screen ---- */
+static void param_text(unsigned param, char *out)
+{
+    if (param == OCTAVE) {
+        if (octave > 0) { *out++ = '+'; }
+        px_number(octave, out);
+    } else if (param < PARAMS) px_number(value[param], out);
+    else *out = 0;
+}
 static void draw(uint32_t now)
 {
-    char text[16];
+    char v[4][12];
+    const char *values[4] = {v[0], v[1], v[2], v[3]};
     px_cls(PX_NIGHT);
-    px_print("MY SYNTH", 2, 2, PX_GOLD);
-    memcpy(text, "OCT ", 5);
-    if (octave > 0) { text[4] = '+'; px_number(octave, text + 5); }
-    else px_number(octave, text + 4);
-    px_print(text, PX_W - 2 - ((int)strlen(text) * 4 - 1), 2, PX_SLATE);
-    px_rect(0, 9, PX_W, 1, PX_DUSK);
-    unsigned recent = touched < PARAMS && now - touched_at < 1200U;
-    for (unsigned i = 0; i < PARAMS; ++i) {
-        int y = 12 + (int)i * 7;
-        unsigned hot = recent && touched == i;
-        px_print(names[i], 2, y, hot ? PX_GOLD : PX_WHITE);
+    for (unsigned k = 0; k < 4; ++k) param_text(page_param[page][k], v[k]);
+    px_chrome("SYNTH", pages, PAGES, page, values);
+    px_print(patches[patch].name, PX_W - 1 - ((int)strlen(patches[patch].name) * 4 - 1), 8, PX_SLATE);
+    /* this page's parameters as bars, the one you are turning in gold */
+    unsigned recent = touched != NONE && now - touched_at < 1200U;
+    for (unsigned k = 0; k < 4; ++k) {
+        unsigned param = page_param[page][k];
+        if (param == NONE) continue;
+        int y = 15 + (int)k * 7;
+        unsigned hot = recent && touched == param;
+        int fill = param == OCTAVE ? (octave + 2) * 11 : (value[param] * 44 + 63) / 127;
+        px_print(pages[page].knob[k], 2, y, hot ? PX_GOLD : PX_WHITE);
         px_rect(20, y + 1, 44, 3, PX_DUSK);
-        px_rect(20, y + 1, (value[i] * 44 + 63) / 127, 3, hot ? PX_GOLD : PX_CYAN);
-        px_print(knobs[i], PX_W - 1 - ((int)strlen(knobs[i]) * 4 - 1), y, PX_SLATE);
+        px_rect(20, y + 1, fill, 3, hot ? PX_GOLD : PX_CYAN);
     }
     /* scope: find a rising zero crossing, then draw 80 points, 4 samples apart */
-    const int top = 63, mid = 71;
+    const int top = 45, mid = 54;
     px_rect(0, top - 2, PX_W, 1, PX_DUSK);
     if (!mysynth_voices_active()) {
         px_rect(0, mid, PX_W, 1, PX_DUSK);
-        px_print_c("HOME ENV EXIT", 73, PX_SLATE);
+        px_flash_draw(now);
         return;
     }
     uint32_t end = mysynth_scope_pos + MYSYNTH_SCOPE, start = end - 330U;
@@ -128,10 +159,11 @@ static void draw(uint32_t now)
         int s = mysynth_scope[(start + (uint32_t)x * 4U) % MYSYNTH_SCOPE];
         int y = mid - s * 24 / 32768;   /* zoomed: clamps at the box edge */
         if (y < top) y = top;
-        if (y > top + 16) y = top + 16;
+        if (y > top + 18) y = top + 18;
         for (int j = prev < y ? prev : y; j <= (prev < y ? y : prev); ++j) px_pset(x, j, PX_GREEN);
         prev = y;
     }
+    px_flash_draw(now);
 }
 
 unsigned mysynth_active(void) { return active; }
@@ -142,15 +174,16 @@ int mysynth_control(const struct fm1_controls *c)
     uint32_t now = fm1_millis();
     uint32_t pressed = c->buttons & ~prev_buttons;
     uint32_t down = c->keys & ~prev_keys, up = prev_keys & ~c->keys;
-    unsigned combo = px_combo(c->buttons, pressed, PX_HOME, PX_ENV);
+    unsigned combo = px_mode_toggle(pressed, PX_MODE_SYNTH, active);
     prev_buttons = c->buttons; prev_keys = c->keys;
     if (!active) {
         if (!combo) return 0;
-        if (!initialized) { memcpy(value, defaults, sizeof value); build_ftab(); initialized = 1; }
+        if (!initialized) { memcpy(value, patches[0].value, sizeof value); build_ftab(); initialized = 1; }
         apply();
         px_leds_off();
         memset(held_note, 0, sizeof held_note);
         active = 1; full_redraw = 1; last_ms = now - 100U;
+        px_flash(pages[page].name, now, 700U);
         return 1;
     }
     if (combo) {
@@ -167,11 +200,32 @@ int mysynth_control(const struct fm1_controls *c)
     if ((pressed & PX_BIT(PX_OCT_DOWN)) && octave > -2) --octave;
     if ((pressed & PX_BIT(PX_OCT_UP)) && octave < 2) ++octave;
     unsigned changed = 0;
-    for (unsigned i = 0; i < PARAMS; ++i) {
-        if (!c->encoders[i]) continue;
-        int v = (int)value[i] + c->encoders[i] * 2;
-        value[i] = (uint8_t)(v < 0 ? 0 : v > 127 ? 127 : v);
-        touched = i; touched_at = now; changed = 1;
+    const int16_t *e = c->encoders;
+    /* SELECT: pages */
+    if (e[0]) {
+        int p = (int)page + e[0];
+        page = (unsigned)(p < 0 ? 0 : p >= PAGES ? PAGES - 1 : p);
+        px_flash(pages[page].name, now, 700U); changed = 1;
+    }
+    /* PRESETS: patches */
+    if (e[6]) {
+        patch = (unsigned)(((int)patch + e[6] + PATCHES * 8) % PATCHES);
+        memcpy(value, patches[patch].value, sizeof value);
+        px_flash(patches[patch].name, now, 700U); changed = 1;
+    }
+    /* KNOBS 1-4: this page's parameters */
+    for (unsigned k = 0; k < 4; ++k) {
+        int turn = e[2 + k];
+        unsigned param = page_param[page][k];
+        if (!turn || param == NONE) continue;
+        if (param == OCTAVE) {
+            int o = octave + turn;
+            octave = o < -2 ? -2 : o > 2 ? 2 : o;
+        } else {
+            int v = (int)value[param] + turn * 2;
+            value[param] = (uint8_t)(v < 0 ? 0 : v > 127 ? 127 : v);
+        }
+        touched = param; touched_at = now; changed = 1;
     }
     if (changed) apply();
     if (now - last_ms >= 33U || changed || pressed) {

@@ -11,7 +11,7 @@
  * midi_router.c on the very block the FM-1 tracks see them, so both stay in
  * lock with no drift. Ratchet sub-hits and swing are sample-accurate.
  *
- * Control side (cr78.c) owns the panel while the mode is on (HOME+LFO) and
+ * Control side (cr78.c) owns the panel while the mode is on (from the launcher) and
  * prepares every coefficient; leaving the mode keeps the pattern playing. */
 #ifndef FM1_CR78_H
 #define FM1_CR78_H
@@ -28,7 +28,12 @@ struct cr78_shared {
     volatile int32_t swing_q16;            /* offbeat delay as a fraction of a step */
     volatile int32_t level;                /* Q15 */
     volatile uint8_t armed, muted, fm1_swing;
+    /* the performance pads that bend the pattern (CR78_PERF_*), and the roll's settings */
+    volatile uint8_t perf, roll_len, roll_fade;   /* roll_len 1/2/4 steps; roll_fade volume steps per repeat */
+    volatile uint8_t accent_boost[CR78_VOICES];
+    volatile uint16_t voice_mute;   /* bit v: voice v is muted (the MIX screen's black keys) */   /* volume steps an accent adds, per voice (0..4) */
 };
+enum { CR78_PERF_ROLL16 = 1, CR78_PERF_ROLL32 = 2, CR78_PERF_HALF = 4, CR78_PERF_REV = 8 };
 extern struct cr78_shared cr78;
 
 /* Audio ISR: engine callbacks, and one sequencer tick per block. */
@@ -46,4 +51,22 @@ extern volatile uint16_t cr78_hits;   /* voices triggered since the panel last c
 int cr78_audition(unsigned voice, unsigned boost);
 int cr78_control(const struct fm1_controls *controls);
 unsigned cr78_active(void);
+/* the kit, for other panels (GROOVEBOX's DRUMS track) */
+struct px_page;
+void cr78_kit_ready(void);
+unsigned cr78_black_voice(unsigned i);                 /* black key i (0..10) -> voice */
+const char *const *cr78_voice_row(void);               /* the eleven black keys' labels */
+const char *cr78_voice_name(unsigned v);
+const char *cr78_voice_short(unsigned v);
+unsigned cr78_voice_color(unsigned v);
+const struct px_page *cr78_voice_pages(unsigned *count);   /* SOUND PITCH BODY MOD LEVEL */
+const char *cr78_voice_knob(unsigned page, unsigned k);
+void cr78_voice_text(unsigned v, unsigned page, unsigned k, char *out);
+void cr78_voice_turn(unsigned v, unsigned page, unsigned k, int turn);   /* rebuilds the voice */
+unsigned cr78_preset_count(void);
+unsigned cr78_preset_index(void);
+const char *cr78_preset_name(unsigned p);
+void cr78_preset(unsigned p);
+void cr78_set_ratchet(unsigned v, unsigned s, int r);
+void cr78_draw_kit(unsigned v, uint32_t now);
 #endif

@@ -165,9 +165,7 @@ FM1_AUDIO_CODE void mysynth_render(int32_t *output)
         int32_t x = clamp((int32_t)(((int64_t)mix[i] * level) >> 15), -49152, 49152);
         int32_t y = x - (int32_t)(((((int64_t)x * x) >> 15) * x * 4855) >> 30);
         mysynth_scope[pos++ % MYSYNTH_SCOPE] = (int16_t)clamp(y, -32768, 32767);
-        int32_t q23 = y << 8;
-        output[2 * i] += q23;
-        output[2 * i + 1] += q23;
+        output[i] += y;
     }
     mysynth_scope_pos = pos % MYSYNTH_SCOPE;
 }

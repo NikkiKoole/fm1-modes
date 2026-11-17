@@ -7,6 +7,7 @@
 #include "cr78.h"
 #include "rhythm.h"
 #include "bass.h"
+#include "launcher.h"
 #include <string.h>
 enum {
     BACK = 0x0000,
@@ -2569,17 +2570,9 @@ void groove_screen_control(void)
 {
     struct fm1_controls controls;
     fm1_controls_read(&controls);
-    /* Full-screen modes own the panel while they run:
-     * STARFALL (app/game.c, HOME+ARP), MY SYNTH (app/mysynth.c, HOME+ENV)
-     * CR-78 (app/cr78.c, HOME+LFO), RHYTHM BOX (app/rhythm.c, HOME+SCL)
-     * and BASS PLAYER (app/bass.c, HOME+EDIT). */
-    unsigned mode_open = game_active() || mysynth_active() || cr78_active() || rhythm_active() || bass_active();
-    int game = 0;
-    if (!mode_open || game_active()) game = game_control(&controls);
-    if (!game && (!mode_open || mysynth_active())) game = mysynth_control(&controls);
-    if (!game && (!mode_open || cr78_active())) game = cr78_control(&controls);      /* HOME+LFO */
-    if (!game && (!mode_open || rhythm_active())) game = rhythm_control(&controls);  /* HOME+SCL */
-    if (!game && (!mode_open || bass_active())) game = bass_control(&controls);      /* HOME+EDIT */
+    /* The launcher (app/launcher.c, HOME+ARP) and the modes it opens own the
+     * panel while they run: BASS PLAYER, CR-78, RHYTHM BOX, MY SYNTH, STARFALL. */
+    int game = launcher_control(&controls);
     if (game) {
         previous_buttons = controls.buttons; previous_keys = controls.keys;
         blocked_keys = controls.keys;
@@ -2907,7 +2900,7 @@ void groove_screen_snapshot(uint8_t state[8])
     state[0] = (uint8_t)track;
     /* Full-screen modes report HOME so the browser preview treats keys as
      * playable and starts its audio on the first press. */
-    state[1] = (uint8_t)(mysynth_active() || game_active() || cr78_active() || rhythm_active() || bass_active() ? OVERVIEW : page);
+    state[1] = (uint8_t)(launcher_active() ? OVERVIEW : page);
     state[2] = (uint8_t)cursor;
     state[3] = (uint8_t)drum;
     state[4] = (uint8_t)writing;

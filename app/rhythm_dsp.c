@@ -3,6 +3,7 @@
  * outside the app's audio code. */
 #include "rhythm.h"
 #include "cr78.h"   /* fm1_transport_tempo */
+#include "fx.h"
 
 enum { PERIOD = FM1_SAMPLE_RATE * 60U };
 
@@ -35,13 +36,16 @@ static FM1_AUDIO_CODE void fire(const struct rhythm_pattern *p, unsigned count, 
         const struct rhythm_lane *lane = &p->lane[l];
         if (!((lane->fire >> count) & 1U)) continue;
         if (lane->role & RHYTHM_ROLE_CHORD)
-            for (unsigned k = 0; k < 3; ++k) dv_trigger(&rhythm.organ, 0, 0, level, 0, rhythm.chord[k]);
-        if (lane->role & RHYTHM_ROLE_BASSLO) dv_trigger(&rhythm.bass, 0, 0, level, 0, rhythm.bass_note[0]);
-        if (lane->role & RHYTHM_ROLE_BASSHI) dv_trigger(&rhythm.bass, 0, 0, level, 0, rhythm.bass_note[1]);
+            for (unsigned k = 0; k < 3; ++k) dv_trigger(&rhythm.organ, 0, 0, level, 0, rhythm.chord[k], FX_RHYTHM);
+        if (lane->role & RHYTHM_ROLE_BASSLO) dv_trigger(&rhythm.bass, 0, 0, level, 0, rhythm.bass_note[0], FX_RHYTHM);
+        if (lane->role & RHYTHM_ROLE_BASSHI) dv_trigger(&rhythm.bass, 0, 0, level, 0, rhythm.bass_note[1], FX_RHYTHM);
         if (lane->role & RHYTHM_ROLE_DRUM) {
             uint32_t gate = lane->hold[count] ? (uint32_t)(((uint64_t)tick * lane->hold[count]) >> 9) : 0;
             for (unsigned v = 0; v < lane->voices; ++v)
-                if (lane->voice[v] < kit_size) dv_trigger(&kit[lane->voice[v]], 0, 0, level, gate, -1);
+                if (lane->voice[v] < kit_size) {
+                    dv_trigger(&kit[lane->voice[v]], 0, 0, level, gate, -1, FX_RHYTHM);
+                    if (lane->voice[v] == 0) fx_kick(FX_KEY_RHYTHM, 0);   /* voice 0 is the kick in both kits */
+                }
         }
         rhythm_hits |= (uint16_t)(1U << l);
     }

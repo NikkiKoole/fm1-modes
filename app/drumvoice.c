@@ -13,7 +13,7 @@ static struct partial {
     uint32_t delay, t, phase, rng, age, inc, base_inc, base_rec, lfo_acc;
     int32_t env, low, band, pitch, dc_x, dc_y, lfo_gain;
     int32_t next, e, lp, hx, hy, x1[2], x2[2], y1[2], y2[2];
-    uint8_t stage, jitter;
+    uint8_t stage, jitter, bus;
 } parts[PARTS];
 static uint32_t age_clock, seed = 0x2545f491u;
 
@@ -22,7 +22,7 @@ INLINE uint32_t xorshift(uint32_t *s) { uint32_t x = *s; x ^= x << 13; x ^= x >>
 
 /* ======================= audio side ======================= */
 FM1_AUDIO_CODE void dv_trigger(const struct dv_voice *voice, int boost, uint32_t delay,
-                               int32_t level, uint32_t gate, int note)
+                               int32_t level, uint32_t gate, int note, unsigned bus)
 {
     if (!dv.ready) return;
     for (unsigned p = 0; p < voice->parts && p < DV_MAX_PARTS; ++p) {
@@ -55,7 +55,7 @@ FM1_AUDIO_CODE void dv_trigger(const struct dv_voice *voice, int boost, uint32_t
         s->delay = delay + d->offset; s->t = 0; s->phase = 0; s->env = 0;
         s->low = s->band = 0; s->dc_x = s->dc_y = 0;
         s->pitch = d->pitch; s->rng = xorshift(&seed) ^ (pick * 2654435761u);
-        s->lfo_acc = 0; s->lfo_gain = 32768;
+        s->lfo_acc = 0; s->lfo_gain = 32768; s->bus = (uint8_t)bus;
         s->next = 0; s->e = 0; s->lp = s->hx = s->hy = 0;
         s->x1[0] = s->x1[1] = s->x2[0] = s->x2[1] = s->y1[0] = s->y1[1] = s->y2[0] = s->y2[1] = 0;
         s->stage = d->attack ? ATTACK : DECAY;
@@ -199,23 +199,10 @@ static FM1_AUDIO_CODE void render_partial(struct partial *s, int32_t *mix)
     }
 }
 
-FM1_AUDIO_CODE void dv_output(int32_t *output)
+FM1_AUDIO_CODE void dv_render(int32_t (*bus)[FM1_BLOCK_FRAMES])
 {
-    static int32_t mix[FM1_BLOCK_FRAMES];
-    unsigned any = 0;
-    {   /* volatile keeps this a loop, not a memset call into Flash */
-        volatile int32_t *m = mix;
-        for (unsigned i = 0; i < FM1_BLOCK_FRAMES; ++i) m[i] = 0;
-    }
     for (unsigned p = 0; p < PARTS; ++p)
-        if (parts[p].stage != IDLE) { render_partial(&parts[p], mix); any = 1; }
-    if (!any) return;
-    for (unsigned i = 0; i < FM1_BLOCK_FRAMES; ++i) {
-        int32_t y = clamp(mix[i], -32768, 32767) << 8;
-        int64_t l = (int64_t)output[2 * i] + y, r = (int64_t)output[2 * i + 1] + y;
-        output[2 * i] = (int32_t)(l > 0x7fffffff ? 0x7fffffff : l < -0x7fffffff ? -0x7fffffff : l);
-        output[2 * i + 1] = (int32_t)(r > 0x7fffffff ? 0x7fffffff : r < -0x7fffffff ? -0x7fffffff : r);
-    }
+        if (parts[p].stage != IDLE) render_partial(&parts[p], bus[parts[p].bus]);
 }
 
 /* ======================= control side ======================= */

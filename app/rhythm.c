@@ -1,14 +1,16 @@
 /* SPDX-License-Identifier: GPL-3.0-only WITH GPL-3.0-linking-exception */
-/* RHYTHM BOX panel mode. HOME+SCL opens and closes it; the rhythm keeps
- * playing with the FM-1 transport after you leave.
+/* RHYTHM BOX panel mode, in the shared grammar: SELECT pages, the four KNOBs
+ * are labelled in the bottom bar, PRESETS picks the rhythm, HOME goes back to
+ * the launcher. The rhythm keeps playing with the FM-1 transport after you leave.
  *
- *   SELECT      machine: FR-2L, TR-77, M252, M253, HAMMOND, M255, M254
- *   PRESETS     rhythm
- *   KNOB 1      voice map: 0 = the machine's own kit (TR-77), then the Side Man
- *               maps (autorhythm's V key)
- *   KNOB 2      FM-1 tempo          KNOB 3   TR-77 metronome lane on/off
- *   ALGORITHM   level               FX       mute         PLAY  FM-1 play/stop
- *   keys        hold a chord: the CHORD and BASS lanes (Hammond, M255) play it
+ *   MACHINE  MACH   MAP    TEMPO  LEVEL     FR-2L TR-77 M252 M253 HAMMOND M255 M254;
+ *                                           MAP 0 = the machine's own kit (TR-77),
+ *                                           then the Side Man maps (autorhythm's V key)
+ *   CHORD    ROOT   QUAL   CLICK            what the CHORD and BASS lanes (Hammond,
+ *                                           M255) play; CLICK = the TR-77 metronome lane
+ *
+ *   keys     hold a chord: lowest key = root, minor if its minor third is held
+ *   FX  mute        PLAY  FM-1 play / stop
  *
  * Lane-to-voice mapping and the firing rules are autorhythm.c's; the voices
  * are tr77.h and sideman.h, number for number. */
@@ -25,7 +27,7 @@ static const struct machine machines[] = {
     {"TR-77", "ROLAND 1972", RB_TR77, RB_TR77_N},
     {"M252", "SGS CHIP PINS", RB_SGS, RB_SGS_N},
     {"M253", "SGS CHIP PINS", RB_M253, RB_M253_N},
-    {"HAMMOND", "PATENT 1969 CHORDS", RB_HAM, RB_HAM_N},
+    {"HAMM", "HAMMOND PATENT 1969", RB_HAM, RB_HAM_N},
     {"M255", "SGS NAMED PINS", RB_M255, RB_M255_N},
     {"M254", "SGS ACCOMPANIMENT", RB_M254, RB_M254_N},
 };
@@ -206,7 +208,12 @@ static int is_metronome(const char *label)
 /* ---- state ---- */
 static unsigned active, initialized, full_redraw, machine = MACH_TR77, rhythm_index, rotation, metronome, level = 22;
 static uint32_t prev_buttons, prev_keys, last_ms, flash_until[RHYTHM_LANES];
-static uint32_t notice_until; static const char *notice;
+enum { MACHINE, CHORD, PAGES };
+static const struct px_page pages[PAGES] = {
+    {"MACHINE", {"MACH", "MAP", "TMPO", "LVL"}},
+    {"CHORD", {"ROOT", "QUAL", "CLIK", ""}},
+};
+static unsigned page;
 static const RbRhythm *current(void) { return &machines[machine].set[rhythm_index]; }
 static unsigned tr77_kit(void) { return machine == MACH_TR77 && rotation == 0; }
 
@@ -323,30 +330,32 @@ static void init(void)
 static const char *const note_names[12] = {"C", "C+", "D", "D+", "E", "F", "F+", "G", "G+", "A", "A+", "B"};
 static void draw(uint32_t now)
 {
-    char text[24];
+    char text[24], v[4][12];
+    const char *value[4] = {v[0], v[1], v[2], v[3]};
     const RbRhythm *r = current();
     const struct rhythm_pattern *p = &rhythm.pattern[rhythm.live & 1U];
     px_cls(PX_NIGHT);
-    px_print(machines[machine].name, 2, 1, PX_GOLD);
-    px_number((int)groove_tempo_current(), text);
-    px_print(text, PX_W - 2 - ((int)strlen(text) * 4 - 1), 1, PX_SLATE);
+    if (page == MACHINE) {
+        static const char *const short_name[MACHINES] = {"FR2L", "TR77", "M252", "M253", "HAMM", "M255", "M254"};
+        strcpy(v[0], short_name[machine]);
+        if (!rotation) strcpy(v[1], tr77_kit() ? "KIT" : "SM");
+        else { strcpy(v[1], "SM"); px_number((int)rotation, v[1] + 2); }
+        px_number((int)groove_tempo_current(), v[2]); px_number((int)level, v[3]);
+    } else {
+        strcpy(v[0], note_names[chord_root]); strcpy(v[1], chord_minor ? "MIN" : "MAJ");
+        strcpy(v[2], metronome ? "ON" : "OFF"); v[3][0] = 0;
+    }
+    px_chrome("RHYTHM", pages, PAGES, page, value);
     /* the rhythm name, uppercased and cut to fit */
-    unsigned n = 0;
-    for (const char *s = r->name; *s && n < 19; ++s)
+    unsigned n = 0, fit = rhythm.muted ? 14 : 19;
+    for (const char *s = r->name; *s && n < fit; ++s)
         text[n++] = (*s >= 'a' && *s <= 'z') ? (char)(*s - 32) : *s;
     text[n] = 0;
-    px_print(text, 2, 7, PX_EMBER);
-    if (notice && (int32_t)(notice_until - now) > 0) px_print(notice, 2, 13, PX_WHITE);
-    else if (rhythm.muted) px_print("MUTE", 2, 13, PX_RED);
-    else {
-        char info[24]; px_number(p->per_beat, info);
-        size_t l = strlen(info); memcpy(info + l, " PER BEAT ", 11);
-        px_number(p->used, info + strlen(info));
-        px_print(info, 2, 13, PX_SLATE);
-    }
+    px_print(text, 2, 8, PX_WHITE);
+    if (rhythm.muted) px_print("MUTE", PX_W - 17, 8, PX_RED);
     /* the lanes: one column per count, skipped counts left dark */
     int counts = r->counts < RHYTHM_COUNTS ? r->counts : RHYTHM_COUNTS;
-    int cw = counts <= 16 ? 4 : counts <= 32 ? 2 : 1, x0 = 15, y0 = 21;
+    int cw = counts <= 16 ? 4 : counts <= 32 ? 2 : 1, x0 = 15, y0 = 16;
     unsigned head = rhythm_count, run = rhythm_running;
     uint16_t hits = rhythm_hits; rhythm_hits = 0;
     for (int c = 0; c < counts; ++c) {
@@ -369,61 +378,79 @@ static void draw(uint32_t now)
             px_rect(x, y, w, 2, run && c == (int)head ? PX_WHITE : color);
         }
     }
-    /* footer: the source, the voice map, the chord the accompaniment follows */
-    int fy = y0 + RHYTHM_LANES * 3 + 2;
+    /* footer: the source, and the chord the accompaniment follows (or the kit) */
+    int fy = y0 + RHYTHM_LANES * 3 + 1;
     px_print(machines[machine].note, 2, fy, PX_SLATE);
     if (has_accompaniment()) {
         char chord[16] = "CHORD ";
         strcat(chord, note_names[chord_root]);
         strcat(chord, chord_minor ? " MIN" : " MAJ");
-        px_print(chord, 2, fy + 7, PX_GREEN);
+        px_print(chord, 2, fy + 6, PX_GREEN);
     } else {
-        char map[16] = "KIT ";
-        strcat(map, tr77_kit() ? "TR-77" : "SIDE MAN");
-        if (rotation) { size_t l = strlen(map); map[l] = ' '; px_number((int)rotation, map + l + 1); }
-        px_print(map, 2, fy + 7, PX_SLATE);
+        px_number(p->per_beat, text);
+        strcat(text, " PER BEAT ");
+        px_number(p->used, text + strlen(text));
+        px_print(text, 2, fy + 6, PX_SLATE);
     }
+    px_flash_draw(now);
 }
 
 unsigned rhythm_active(void) { return active; }
+
+static int clamp(int v, int lo, int hi) { return v < lo ? lo : v > hi ? hi : v; }
+static void name_flash(uint32_t now)
+{
+    static char text[24];
+    unsigned n = 0;
+    for (const char *s = current()->name; *s && n < 9; ++s)
+        text[n++] = (*s >= 'a' && *s <= 'z') ? (char)(*s - 32) : *s;
+    text[n] = 0;
+    px_flash(text, now, 700U);
+}
 
 int rhythm_control(const struct fm1_controls *c)
 {
     uint32_t now = fm1_millis();
     uint32_t pressed = c->buttons & ~prev_buttons;
-    unsigned combo = px_combo(c->buttons, pressed, PX_HOME, PX_SCL);
+    unsigned toggle = px_mode_toggle(pressed, PX_MODE_RHYTHM, active);
     uint32_t keys_changed = c->keys ^ prev_keys;
     prev_buttons = c->buttons; prev_keys = c->keys;
     if (!active) {
-        if (!combo) return 0;
+        if (!toggle) return 0;
         if (!initialized) init();
         rhythm.armed = 1;
         px_leds_off();
         active = 1; full_redraw = 1; last_ms = now - 100U;
-        notice = "HOME SCL EXIT"; notice_until = now + 1500U;
+        px_flash(pages[page].name, now, 700U);
         return 1;
     }
-    if (combo) { px_leds_off(); active = 0; return 2; }
+    if (toggle) { px_leds_off(); active = 0; return 2; }
     unsigned changed = 0, reload = 0;
     const int16_t *e = c->encoders;
-    if (e[0]) { machine = (unsigned)(((int)machine + e[0] + MACHINES * 8) % MACHINES); rhythm_index = 0; reload = 1; }
+    /* SELECT: pages */
+    if (e[0]) { page = (unsigned)clamp((int)page + e[0], 0, PAGES - 1); px_flash(pages[page].name, now, 700U); changed = 1; }
+    /* PRESETS: the rhythm */
     if (e[6]) {
         int count = machines[machine].count;
         rhythm_index = (unsigned)(((int)rhythm_index + e[6] + count * 8) % count); reload = 1;
+        name_flash(now);
     }
-    if (e[2]) { rotation = (unsigned)(((int)rotation + e[2] + RHYTHM_SIDEMAN_VOICES * 8) % RHYTHM_SIDEMAN_VOICES); reload = 1;
-                notice = rotation ? "SIDE MAN MAP" : (machine == MACH_TR77 ? "TR-77 KIT" : "SIDE MAN"); notice_until = now + 800U; }
-    if (e[3]) { groove_tempo_edit(e[3]); changed = 1; }
-    if (e[4]) { metronome ^= 1U; reload = 1; notice = metronome ? "METRONOME ON" : "METRONOME OFF"; notice_until = now + 800U; }
-    if (e[1]) {
-        int l = (int)level + e[1] * 4;
-        level = (unsigned)(l < 0 ? 0 : l > 100 ? 100 : l);
-        rhythm.level = (int32_t)(level * 32768U / 100U);
-        notice = "LEVEL"; notice_until = now + 600U; changed = 1;
+    const int16_t k1 = e[2], k2 = e[3], k3 = e[4], k4 = e[5];
+    if (page == MACHINE) {
+        if (k1) { machine = (unsigned)(((int)machine + k1 + MACHINES * 8) % MACHINES); rhythm_index = 0; reload = 1;
+                  px_flash(machines[machine].name, now, 700U); }
+        if (k2) { rotation = (unsigned)(((int)rotation + k2 + RHYTHM_SIDEMAN_VOICES * 8) % RHYTHM_SIDEMAN_VOICES); reload = 1; }
+        if (k3) { groove_tempo_edit(k3); changed = 1; }
+        if (k4) { level = (unsigned)clamp((int)level + k4 * 4, 0, 100);
+                  rhythm.level = (int32_t)(level * 32768U / 100U); changed = 1; }
+    } else {
+        if (k1) { chord_root = (unsigned)(((int)chord_root + k1 + 12 * 8) % 12); follow_chord(0); changed = 1; }
+        if (k2) { chord_minor = k2 < 0; follow_chord(0); changed = 1; }
+        if (k3) { metronome = k3 > 0; reload = 1; }
     }
     if (keys_changed) { follow_chord(c->keys); changed = 1; }
     if (reload) { load(); changed = 1; }
-    if (pressed & PX_BIT(PX_FX)) { rhythm.muted ^= 1U; changed = 1; }
+    if (pressed & PX_BIT(PX_FX)) { rhythm.muted ^= 1U; px_flash(rhythm.muted ? "MUTE" : "UNMUTE", now, 600U); changed = 1; }
     if (pressed & PX_BIT(PX_PLAY)) {
         struct groove_view view = {0};
         groove_get_view(0, 0, &view);

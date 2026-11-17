@@ -1,7 +1,7 @@
 /* SPDX-License-Identifier: GPL-3.0-only WITH GPL-3.0-linking-exception */
 /* STARFALL: a tiny pixel game that only uses the public FM1 panel API.
  *
- * HOME+ARP toggles it. Stars fall above the 27 piano keys; a key's LED lights
+ * Opened from the launcher; HOME goes back. Stars fall above the 27 piano keys; a key's LED lights
  * when a star is coming down over it. Press that key (or steer with K1 / the
  * OCT buttons) to move the catcher. Every caught star plays its own key's note
  * on track 1 through fm1_midi_post, so the melody is whatever you catch.
@@ -148,7 +148,7 @@ static void draw(void)
         px_print_c("CATCH STARS", 32, 2);
         px_print_c("WITH THE KEYS", 39, 2);
         if ((frame / 20U) & 1U) px_print_c("PRESS A KEY", 54, 6);
-        px_print_c("HOME ARP EXIT", 68, 8);
+        px_print_c("HOME BACK", 68, 8);
         return;
     }
     for (unsigned i = 0; i < MAX_STARS; ++i)
@@ -179,7 +179,7 @@ int game_control(const struct fm1_controls *c)
 {
     uint32_t now = fm1_millis();
     uint32_t pressed = c->buttons & ~prev_buttons, pressed_keys = c->keys & ~prev_keys;
-    unsigned combo = px_combo(c->buttons, pressed, B_HOME, B_ARP);
+    unsigned combo = px_mode_toggle(pressed, PX_MODE_GAME, active);
     prev_buttons = c->buttons; prev_keys = c->keys;
     if (!active) {
         if (!combo) return 0;

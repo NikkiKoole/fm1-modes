@@ -6,6 +6,7 @@
 #include "cr78.h"
 #include "rhythm.h"
 #include "bass.h"
+#include "fx.h"
 
 static unsigned output_gain;
 static int32_t usb_pcm[FM1_BLOCK_WORDS] __attribute__((aligned(32)));
@@ -23,11 +24,19 @@ static inline __attribute__((always_inline)) int32_t limit(int64_t value)
 FM1_AUDIO_CODE void fm1_output_mix(int32_t *output)
 {
     if (!output) return;
-    mysynth_render(output); /* APP-owned voices on top of the sealed engine */
+    /* APP-owned voices on top of the sealed engine: every mode renders into its
+     * own mono bus, and the FX rack sums the buses into the output. */
+    static int32_t bus[FX_BUSES][FM1_BLOCK_FRAMES];
+    {   /* volatile keeps this a loop, not a memset call into Flash */
+        volatile int32_t *b = &bus[0][0];
+        for (unsigned i = 0; i < FX_BUSES * FM1_BLOCK_FRAMES; ++i) b[i] = 0;
+    }
     cr78_tick();            /* drum sequencers queue hits on the shared drum engine */
     rhythm_tick();
     bass_tick();            /* the bass player follows the harmony on the same engine */
-    dv_output(output);
+    mysynth_render(bus[FX_SYNTH]);
+    dv_render(bus);
+    fx_mix(output, bus);
     unsigned target = fm1_engine_output_level();
     if (target > 127U) target = 127U;
     int delta = (int)target - (int)output_gain;

@@ -54,9 +54,9 @@ extern struct dv_tables dv;
 /* Audio ISR. note >= 0 replaces the recipe pitch (organ/bass); gate > 0 holds
  * the voice that many samples instead of its own gate. level is Q15. */
 FM1_AUDIO_CODE void dv_trigger(const struct dv_voice *voice, int boost, uint32_t delay,
-                               int32_t level, uint32_t gate, int note);
-/* Render every sounding partial and add it to the block (interleaved Q23 stereo). */
-FM1_AUDIO_CODE void dv_output(int32_t *output);
+                               int32_t level, uint32_t gate, int note, unsigned bus);
+/* Render every sounding partial into its bus (mono Q15 per frame, added). */
+FM1_AUDIO_CODE void dv_render(int32_t (*bus)[FM1_BLOCK_FRAMES]);
 
 /* Control task. */
 struct dv_recipe {

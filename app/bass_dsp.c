@@ -2,6 +2,7 @@
 /* BASS PLAYER audio: hearing, chord naming, patgen on the FM-1 beat.
  * Integer only, no division, no library calls. */
 #include "bass.h"
+#include "fx.h"
 #include "patgen.h"
 #include "instrument.h"
 #include "cr78.h"   /* fm1_transport_tempo */
@@ -11,6 +12,7 @@ enum { PERIOD = FM1_SAMPLE_RATE * 60U };
 struct bass_shared bass;
 volatile uint8_t bass_root = BASS_NONE, bass_quality, bass_running, bass_latched_n, bass_rest_pos;
 volatile uint8_t bass_latched[8], bass_history[BASS_HISTORY], bass_history_pos;
+volatile uint16_t bass_heard;
 
 /* what is sounding, one owner per context */
 static uint32_t sequence_bits[GROOVE_TRACKS][4];   /* audio */
@@ -40,7 +42,8 @@ FM1_AUDIO_CODE void bass_hear_sequence(unsigned track, unsigned note, unsigned v
     unsigned type = groove_source_type(track);
     if (type == GROOVE_808 || type == GROOVE_SAMPLE) return;   /* drums carry no harmony */
     uint32_t bit = 1U << (note & 31U);
-    if (velocity) {
+    if (velocity) bass_heard |= (uint16_t)(1U << track);
+    if (velocity && ((bass.listen >> track) & 1U)) {
         unsigned pc = note; while (pc >= 12) pc -= 12;
         onset_mask_audio |= (uint16_t)(1U << pc);
         if (note < onset_low_audio) onset_low_audio = (uint8_t)note;
@@ -53,6 +56,8 @@ void bass_hear_local(unsigned note, unsigned velocity)
     if (note > 127) return;
     if (velocity) {
         if (local_count[note] < 255) ++local_count[note];
+        bass_heard |= 1U << BASS_LISTEN_KEYS;
+        if (!((bass.listen >> BASS_LISTEN_KEYS) & 1U)) return;
         onset_mask_local |= (uint16_t)(1U << (note % 12U));
         if (note < onset_low_local) onset_low_local = (uint8_t)note;
     } else if (local_count[note]) --local_count[note];
@@ -62,6 +67,8 @@ void bass_hear_external(unsigned note, unsigned velocity)
     if (note > 127) return;
     if (velocity) {
         if (external_count[note] < 255) ++external_count[note];
+        bass_heard |= 1U << BASS_LISTEN_KEYS;
+        if (!((bass.listen >> BASS_LISTEN_KEYS) & 1U)) return;
         onset_mask_external |= (uint16_t)(1U << (note % 12U));
         if (note < onset_low_external) onset_low_external = (uint8_t)note;
     } else if (external_count[note]) --external_count[note];
@@ -92,8 +99,10 @@ static FM1_AUDIO_CODE unsigned listen(unsigned *lowest)
 {
     unsigned mask = 0; *lowest = BASS_NONE;
     for (unsigned n = 0; n < 128; ++n) {
-        unsigned on = local_count[n] || external_count[n];
-        for (unsigned t = 0; t < GROOVE_TRACKS && !on; ++t) on = (sequence_bits[t][n >> 5] >> (n & 31U)) & 1U;
+        unsigned listen_mask = bass.listen;
+        unsigned on = ((listen_mask >> BASS_LISTEN_KEYS) & 1U) && (local_count[n] || external_count[n]);
+        for (unsigned t = 0; t < GROOVE_TRACKS && !on; ++t)
+            on = ((listen_mask >> t) & 1U) && ((sequence_bits[t][n >> 5] >> (n & 31U)) & 1U);
         if (!on) continue;
         mask |= 1U << mod12((int)n);
         if (*lowest == BASS_NONE) *lowest = n;
@@ -191,7 +200,7 @@ static FM1_AUDIO_CODE void step(unsigned tempo)
     if (note == PG_REST || bass.muted || note < 0 || note > 127) return;
     uint32_t tick = (uint32_t)(((uint64_t)dv.step_samples[tempo] * 4U * dv.reciprocal[per_beat]) >> 16);  /* Q8 */
     uint32_t gate = (uint32_t)(((uint64_t)tick * bass.gate) >> 24);
-    dv_trigger(&bass.voice, 0, 0, bass.level, gate ? gate : 1, note);
+    dv_trigger(&bass.voice, 0, 0, bass.level, gate ? gate : 1, note, FX_BASS);
 }
 
 FM1_AUDIO_CODE void bass_tick(void)
