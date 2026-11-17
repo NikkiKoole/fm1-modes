@@ -3,6 +3,7 @@
  * divisions, no calls outside the app's audio code: safe in the audio ISR. */
 #include "cr78.h"
 #include "fx.h"
+#include "gbx.h"
 #include "rhythm.h"
 #include "bass.h"
 
@@ -126,6 +127,7 @@ FM1_AUDIO_CODE void cr78_tick(void)
         if (first || phase >= period) {
             if (first) first = 0;
             else { phase -= period; step = (step + 1U) & 63U; ++steps; }
+            gbx_clock(step & 15U, tempo);   /* the GROOVEBOX's melodic tracks, on the same clock */
             unsigned s = pattern_step(), fade = 0, force = 0;
             if (rolling) {
                 force = (cr78.perf & CR78_PERF_ROLL32) ? 2U : 1U;

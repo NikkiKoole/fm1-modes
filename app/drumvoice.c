@@ -24,7 +24,13 @@ INLINE uint32_t xorshift(uint32_t *s) { uint32_t x = *s; x ^= x << 13; x ^= x >>
 FM1_AUDIO_CODE void dv_trigger(const struct dv_voice *voice, int boost, uint32_t delay,
                                int32_t level, uint32_t gate, int note, unsigned bus)
 {
+    dv_trigger_glide(voice, boost, delay, level, gate, note, bus, 0);
+}
+FM1_AUDIO_CODE void dv_trigger_glide(const struct dv_voice *voice, int boost, uint32_t delay,
+                                     int32_t level, uint32_t gate, int note, unsigned bus, int glide)
+{
     if (!dv.ready) return;
+    glide = clamp(glide, -DV_PITCH_LOW, 24);
     for (unsigned p = 0; p < voice->parts && p < DV_MAX_PARTS; ++p) {
         const struct dv_part *d = &voice->part[p];
         int vol = clamp((int)d->vol + boost, 0, 7);
@@ -55,6 +61,9 @@ FM1_AUDIO_CODE void dv_trigger(const struct dv_voice *voice, int boost, uint32_t
         s->delay = delay + d->offset; s->t = 0; s->phase = 0; s->env = 0;
         s->low = s->band = 0; s->dc_x = s->dc_y = 0;
         s->pitch = d->pitch; s->rng = xorshift(&seed) ^ (pick * 2654435761u);
+        if (glide) {   /* start `glide` semitones off and slide onto the note in ~60 ms */
+            s->pitch = glide * 65536; s->d.pitch_step = glide * 25;
+        }
         s->lfo_acc = 0; s->lfo_gain = 32768; s->bus = (uint8_t)bus;
         s->next = 0; s->e = 0; s->lp = s->hx = s->hy = 0;
         s->x1[0] = s->x1[1] = s->x2[0] = s->x2[1] = s->y1[0] = s->y1[1] = s->y2[0] = s->y2[1] = 0;

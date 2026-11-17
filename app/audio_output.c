@@ -7,6 +7,7 @@
 #include "rhythm.h"
 #include "bass.h"
 #include "fx.h"
+#include "gbx.h"
 
 static unsigned output_gain;
 static int32_t usb_pcm[FM1_BLOCK_WORDS] __attribute__((aligned(32)));
@@ -34,6 +35,7 @@ FM1_AUDIO_CODE void fm1_output_mix(int32_t *output)
     cr78_tick();            /* drum sequencers queue hits on the shared drum engine */
     rhythm_tick();
     bass_tick();            /* the bass player follows the harmony on the same engine */
+    gbx_tick();             /* the GROOVEBOX's auditions */
     mysynth_render(bus[FX_SYNTH]);
     dv_render(bus);
     fx_mix(output, bus);

@@ -5,14 +5,16 @@
  *             <----HOME----             <----HOME----
  *
  * ALGORITHM moves along OVERVIEW, DRUMS, BASS, KEYS, LEAD; HOME is always one level up.
- * The same rules on every track: white keys its steps (ENV: accent), black keys its parts
- * (DRUMS: the voice), hold a step + a knob: that step (DRUMS: KNOB 1 ratchet, KNOB 2 accent),
- * hold a step + a black key: that step's hit, KNOB 1-4 its sound (SELECT: pages), REC: live
- * playing goes into the steps, FX tapped: mute, FX held + a black key: throw an effect, on
- * this track (in the overview: on the mix; REC too: latch).
- *
- * Overview: four lanes; black keys 1-4 mute the tracks; white keys 1-8 the drum patterns (for
- * now); knobs MIX (TEMPO SWING FILTER PUMP), FX (DRIVE CRUSH GATE SWEEP), LEVELS. */
+ * The same rules on every track:
+ *   white keys        its steps (ENV held: accent)
+ *   black keys        its parts: DRUMS the voice; BASS notes, in the song's key (OCT -/+ shifts them)
+ *   hold a step       + a knob: that step (DRUMS ratchet, accent; BASS length, velocity, slide, octave)
+ *                     + a black key: that step's voice hit / note
+ *   KNOB 1-4          its sound (SELECT: pages)
+ *   REC               live: the black keys play and write into the step playing
+ *   FX tapped / held  mute / throw an effect on this track while held (REC too: latch)
+ * Overview: four lanes; black keys 1-4 mute the tracks; white keys 1-8 the drum patterns (for now);
+ * knobs MIX (TEMPO SWING FILTER PUMP), FX (DRIVE CRUSH GATE SWEEP), LEVELS, KEY (ROOT SCALE). */
 #include "gbx.h"
 #include "pixel.h"
 #include "cr78.h"
@@ -24,31 +26,49 @@ enum { T_DRUMS, T_BASS, T_KEYS, T_LEAD, TRACKS, OVERVIEW = -1 };
 static const char *const track_name[TRACKS] = {"DRUMS", "BASS", "KEYS", "LEAD"};
 static const char *const track_short[TRACKS] = {"DRM", "BAS", "KEY", "LED"};
 static const uint8_t track_color[TRACKS] = {PX_EMBER, PX_GREEN, PX_CYAN, PX_PINK};
+static const uint8_t track_bus[TRACKS] = {FX_CR78, FX_BASS, FX_SYNTH, FX_RHYTHM};
 static const uint8_t white_keys[16] = {0, 2, 4, 6, 7, 9, 11, 12, 14, 16, 18, 19, 21, 23, 24, 26};
 static const uint8_t black_keys[PX_PADS] = {1, 3, 5, 8, 10, 13, 15, 17, 20, 22, 25};
 
-/* ---- the overview's knobs ---- */
-enum { K_NUM, K_TEMPO, K_FILTER, K_OFF0 };
+/* ---- knobs ---- */
+enum { K_NUM, K_TEMPO, K_FILTER, K_OFF0, K_ROOT, K_SCALE, K_WAVE, K_MS };
 struct knob { const char *label; uint8_t kind; int16_t lo, hi, step; };
-enum { MIX_PAGES = 3 };
+enum { MIX_PAGES = 4 };
 static const struct px_page mix_page[MIX_PAGES] = {
     {"MIX", {"TMPO", "SWNG", "FLTR", "PUMP"}}, {"FX", {"DRV", "CRSH", "GATE", "SWP"}},
-    {"LEVELS", {"DRM", "BAS", "KEY", "LED"}}};
+    {"LEVELS", {"DRM", "BAS", "KEY", "LED"}}, {"KEY", {"ROOT", "SCAL", "", ""}}};
 static const struct knob mix_knob[MIX_PAGES][4] = {
     {{"TMPO", K_TEMPO, 0, 0, 1}, {"SWNG", K_NUM, 50, 66, 2}, {"FLTR", K_FILTER, -100, 100, 4}, {"PUMP", K_OFF0, 0, 100, 5}},
     {{"DRV", K_OFF0, 0, 100, 5}, {"CRSH", K_OFF0, 0, 100, 5}, {"GATE", K_OFF0, 0, 100, 5}, {"SWP", K_OFF0, 0, 100, 5}},
-    {{"DRM", K_NUM, 0, 100, 4}, {"BAS", K_NUM, 0, 100, 4}, {"KEY", K_NUM, 0, 100, 4}, {"LED", K_NUM, 0, 100, 4}}};
-static int16_t mix_val[MIX_PAGES][4] = {{0, 50, 0, 0}, {0, 0, 0, 0}, {40, 70, 70, 70}};
+    {{"DRM", K_NUM, 0, 100, 4}, {"BAS", K_NUM, 0, 100, 4}, {"KEY", K_NUM, 0, 100, 4}, {"LED", K_NUM, 0, 100, 4}},
+    {{"ROOT", K_ROOT, 0, 11, 1}, {"SCAL", K_SCALE, 0, 3, 1}, {"", K_NUM, 0, 0, 0}, {"", K_NUM, 0, 0, 0}}};
+static int16_t mix_val[MIX_PAGES][4] = {{0, 50, 0, 0}, {0, 0, 0, 0}, {40, 60, 70, 70}, {9, 0, 0, 0}};   /* A minor */
+
+/* the song's key: the black keys play its scale, so melodic tracks are always in key */
+static const char *const pitch_name[12] = {"C", "C+", "D", "D+", "E", "F", "F+", "G", "G+", "A", "A+", "B"};
+static const char *const scale_name[4] = {"MIN", "MAJ", "DOR", "PENT"};
+static const uint8_t scale_steps[4][7] = {{0, 2, 3, 5, 7, 8, 10}, {0, 2, 4, 5, 7, 9, 11}, {0, 2, 3, 5, 7, 9, 10}, {0, 3, 5, 7, 10}};
+static const uint8_t scale_len[4] = {7, 7, 7, 5};
+
+/* the BASS track's sound */
+enum { BASS_PAGES = 2 };
+static const struct px_page bass_page[BASS_PAGES] = {{"SOUND", {"CUT", "RES", "DEC", "SUB"}}, {"SHAPE", {"WAVE", "DRV", "ATK", "PTCH"}}};
+static const struct knob bass_knob[BASS_PAGES][4] = {
+    {{"CUT", K_NUM, 0, 100, 3}, {"RES", K_NUM, 0, 100, 5}, {"DEC", K_NUM, 0, 100, 5}, {"SUB", K_OFF0, 0, 100, 5}},
+    {{"WAVE", K_WAVE, 0, 2, 1}, {"DRV", K_OFF0, 0, 100, 5}, {"ATK", K_MS, 0, 40, 2}, {"PTCH", K_OFF0, 0, 12, 1}}};
+static int16_t bass_val[BASS_PAGES][4] = {{40, 35, 35, 60}, {2, 0, 2, 0}};
+static const char *const wave_name[3] = {"SINE", "TRI", "SQR"};
 
 /* ---- the pads (FX held), the same eleven everywhere ---- */
 enum { P_R16, P_R32, P_HLF, P_REV, P_LPF, P_HPF, P_CRS, P_GAT, P_DRV, P_PMP, P_SWP };
 static const char *const pad_name[PX_PADS] = {"R16", "R32", "HLF", "REV", "LPF", "HPF", "CRS", "GAT", "DRV", "PMP", "SWP"};
-enum { SCOPE_MIX, SCOPE_DRUMS, SCOPES };
+enum { SCOPES = TRACKS + 1 };   /* [0] the mix, [1 + t] track t */
 static uint32_t pads_held[SCOPES], pads_latched[SCOPES];
 
-static unsigned active, full_redraw, voice, fx_held, fx_used, rec, muted[TRACKS];
+static unsigned active, initialized, full_redraw, voice, fx_held, fx_used, rec, muted[TRACKS];
 static int zoom = OVERVIEW;                  /* OVERVIEW or the track zoomed into */
-static unsigned page[TRACKS + 1];             /* each view's SELECT page: [0] the overview */
+static unsigned page[SCOPES];                /* each view's SELECT page */
+static unsigned bass_oct = 2, bass_note = 45; /* the black keys' octave; the note new steps get */
 static uint32_t prev_buttons, prev_keys, last_ms, led_state;
 static uint16_t held_steps;
 
@@ -73,7 +93,39 @@ static void set_drive(struct fx_perf *p, float amount)
     p->drive_mix = 32768; p->drive_level = 32768;
 }
 
-/* the pads: a fixed throw each, on top of whatever is set; returns the effect bits they add */
+/* ---- the song's key ---- */
+static unsigned key_note(unsigned i, unsigned oct)   /* black key i -> MIDI note, in the key */
+{
+    unsigned sc = (unsigned)mix_val[3][1], n = scale_len[sc];
+    return 12U * (oct + 1U) + (unsigned)mix_val[3][0] + scale_steps[sc][i % n] + 12U * (i / n);
+}
+static void note_text(unsigned note, char *out)
+{
+    strcpy(out, pitch_name[note % 12U]);
+    px_number((int)(note / 12U) - 1, out + strlen(out));
+}
+
+/* ---- the bass voice: a plucked wave through a lowpass, over a sine an octave down ---- */
+static void build_bass(void)
+{
+    static const uint8_t waves[3] = {DV_SINE, DV_TRI, DV_SQUARE};
+    float hz = 120.0f + (float)(bass_val[0][0] * bass_val[0][0]) * 0.45f;   /* 120 Hz .. 4.6 kHz */
+    uint16_t dec = (uint16_t)(40 + bass_val[0][2] * 6);
+    struct dv_recipe top = {.wave = waves[bass_val[1][0]], .note = 45, .filter = DV_FILTER_LOW, .cutoff = (uint16_t)hz,
+                            .reso = (uint8_t)(bass_val[0][1] * 13 / 100), .attack = (uint16_t)bass_val[1][2], .decay = dec,
+                            .sustain = 3, .release = 40, .gate = 400, .vol = 6, .level = 0.6f,
+                            .pitch = (float)bass_val[1][3], .pitch_ms = 25, .drive = (float)bass_val[1][1] / 100.0f};
+    struct dv_recipe low = {.wave = DV_SINE, .note = 33, .transpose = -12, .attack = (uint16_t)(bass_val[1][2] + 2),
+                            .decay = (uint16_t)(dec + 60), .sustain = 5, .release = 50, .gate = 400, .vol = 6,
+                            .level = (float)bass_val[0][3] / 100.0f};
+    struct dv_voice next = {0};
+    next.parts = bass_val[0][3] ? 2 : 1;
+    dv_build_part(&next.part[0], &top, 0, 1.0f);
+    if (bass_val[0][3]) dv_build_part(&next.part[1], &low, 0, 1.0f);
+    gbx_bass.voice = next;
+}
+
+/* ---- the pads: a fixed throw each, on top of whatever is set; returns the effect bits they add ---- */
 static int32_t throw_pads(struct fx_perf *p, uint32_t pads)
 {
     int32_t on = 0;
@@ -86,7 +138,7 @@ static int32_t throw_pads(struct fx_perf *p, uint32_t pads)
     if (pads & (1U << P_SWP)) { p->sweep_inc = (int32_t)(uint32_t)(0.5f * 97391.55f); p->sweep_depth = 22938; p->sweep_fb = 16384; p->sweep_mix = 19661; on |= PERF_SWEEP; }
     return on;
 }
-/* everything that sounds: the mix knobs + the mix's pads on the master; the drum pads on the drum bus */
+/* everything that sounds: the mix knobs + the mix's pads on the master, each track's pads on its bus */
 static void apply(void)
 {
     struct fx_perf *m = &fx_perf;
@@ -99,12 +151,12 @@ static void apply(void)
     if (mix_val[1][1]) { int bits = 16 - mix_val[1][1] * 12 / 100; m->crush_step = 1 << (24 - bits); m->crush_rate = 1 + mix_val[1][1] * 15 / 100; m->crush_mix = 32768; on |= PERF_CRUSH; }
     if (mix_val[1][2]) { m->gate_shift = 0; m->gate_len = (int32_t)((95 - mix_val[1][2] * 80 / 100) * 65536 / 100); m->gate_floor = 0; on |= PERF_GATE; }
     if (mix_val[1][3]) { m->sweep_inc = (int32_t)(uint32_t)(0.25f * 97391.55f); m->sweep_depth = 26214; m->sweep_fb = 16384; m->sweep_mix = (int32_t)(mix_val[1][3] * 32768 / 100); on |= PERF_SWEEP; }
-    uint32_t mix_pads = pads_held[SCOPE_MIX] | pads_latched[SCOPE_MIX];
+    uint32_t mix_pads = pads_held[0] | pads_latched[0];
     m->on = on | throw_pads(m, mix_pads);
-    uint32_t drum_pads = pads_held[SCOPE_DRUMS] | pads_latched[SCOPE_DRUMS];
-    fx_track_perf[FX_CR78].on = throw_pads(&fx_track_perf[FX_CR78], drum_pads);
-    /* the pattern bends: the drums are the only sequencer yet, so the mix's rolls bend them too */
-    uint32_t bends = mix_pads | drum_pads;
+    for (unsigned t = 0; t < TRACKS; ++t)
+        fx_track_perf[track_bus[t]].on = throw_pads(&fx_track_perf[track_bus[t]], pads_held[1 + t] | pads_latched[1 + t]);
+    /* the pattern bends: the drums' sequencer (the mix's rolls bend it too) */
+    uint32_t bends = mix_pads | pads_held[1 + T_DRUMS] | pads_latched[1 + T_DRUMS];
     unsigned perf = 0;
     if (bends & (1U << P_R16)) perf |= CR78_PERF_ROLL16;
     if (bends & (1U << P_R32)) perf |= CR78_PERF_ROLL32;
@@ -114,14 +166,22 @@ static void apply(void)
     cr78.swing_q16 = (int32_t)((mix_val[0][1] - 50) * 4 * 65536 / 100);
     cr78.level = (int32_t)(mix_val[2][0] * 32768 / 100);
     cr78.muted = (uint8_t)muted[T_DRUMS];
+    gbx_bass.level = (int32_t)(mix_val[2][1] * 32768 / 100);
+    gbx_bass.muted = (uint8_t)muted[T_BASS];
+}
+static void init(void)
+{
+    for (unsigned s = 0; s < GBX_STEPS; ++s) { gbx_bass.note[s] = 45; gbx_bass.gate[s] = 10; gbx_bass.vel[s] = 100; }
+    build_bass();
+    gbx_bass.armed = 1;
+    initialized = 1;
 }
 
 /* ---- text ---- */
-static void mix_text(unsigned pg, unsigned k, char *out)
+static void knob_text(const struct knob *kn, int x, char *out)
 {
-    const struct knob *kn = &mix_knob[pg][k];
-    int x = mix_val[pg][k];
     *out = 0;
+    if (!kn->label[0]) return;
     switch (kn->kind) {
     case K_TEMPO: px_number((int)groove_tempo_current(), out); break;
     case K_FILTER:
@@ -130,6 +190,10 @@ static void mix_text(unsigned pg, unsigned k, char *out)
         else strcpy(out, "OFF");
         break;
     case K_OFF0: if (!x) strcpy(out, "OFF"); else px_number(x, out); break;
+    case K_ROOT: strcpy(out, pitch_name[x % 12]); break;
+    case K_SCALE: strcpy(out, scale_name[x & 3]); break;
+    case K_WAVE: strcpy(out, wave_name[x % 3]); break;
+    case K_MS: px_number(x, out); strcat(out, "MS"); break;
     default: px_number(x, out); break;
     }
 }
@@ -143,31 +207,73 @@ static void readout(const char *who, const char *label, const char *value, uint3
 }
 
 /* ---- screens ---- */
-static unsigned scope(void) { return zoom == T_DRUMS ? SCOPE_DRUMS : SCOPE_MIX; }
+static unsigned scope(void) { return zoom == OVERVIEW ? 0U : 1U + (unsigned)zoom; }
 static const char *const *key_row(void)
 {
     static const char *const lanes[PX_PADS] = {"DRM", "BAS", "KEY", "LED"};
     static const char *const none[PX_PADS] = {""};
+    static char notes[PX_PADS][6];
+    static const char *note_row[PX_PADS];
     if (fx_held) return pad_name;
-    return zoom == OVERVIEW ? lanes : zoom == T_DRUMS ? cr78_voice_row() : none;
+    if (zoom == OVERVIEW) return lanes;
+    if (zoom == T_DRUMS) return cr78_voice_row();
+    if (zoom == T_BASS) {
+        for (unsigned i = 0; i < PX_PADS; ++i) { note_text(key_note(i, bass_oct), notes[i]); note_row[i] = notes[i]; }
+        return note_row;
+    }
+    return none;
 }
 static uint32_t key_lit(void)
 {
     if (fx_held) return pads_held[scope()] | pads_latched[scope()];
     if (zoom == OVERVIEW) { uint32_t m = 0; for (unsigned t = 0; t < TRACKS; ++t) if (muted[t]) m |= 1U << t; return m; }
     if (zoom == T_DRUMS) for (unsigned i = 0; i < PX_PADS; ++i) if (cr78_black_voice(i) == voice) return 1U << i;
+    if (zoom == T_BASS) for (unsigned i = 0; i < PX_PADS; ++i) if (key_note(i, bass_oct) == bass_note) return 1U << i;
     return 0;
 }
-static void draw_overview(uint32_t now)
+/* the bass as a piano roll: pitch up, the notes as bars as long as they sound, slides joined */
+static void draw_roll(int top, int bottom, unsigned big)
 {
-    /* four lanes, one bar each: a cell per step, brighter the more that track plays on it */
+    unsigned head = cr78_playhead, run = cr78_running;
+    int lo = 127, hi = 0;
+    for (unsigned s = 0; s < GBX_STEPS; ++s) if ((gbx_bass.on >> s) & 1U) {
+        if (gbx_bass.note[s] < lo) lo = gbx_bass.note[s];
+        if (gbx_bass.note[s] > hi) hi = gbx_bass.note[s];
+    }
+    if (lo > hi) { lo = (int)bass_note - 6; hi = (int)bass_note + 6; }
+    if (hi - lo < 12) { int m = (lo + hi) / 2; lo = m - 6; hi = m + 6; }
+    int rows = bottom - top, x0 = big ? 8 : 16, w = 4;
+    for (unsigned s = 0; s < GBX_STEPS; ++s) {
+        int x = x0 + (int)s * w;
+        if (run && s == head) px_rect(x - 1, top, w + 1, rows + 1, PX_DUSK);
+        if (big && !(s & 3U)) px_pset(x, bottom + 1, PX_SLATE);
+        if (!((gbx_bass.on >> s) & 1U)) continue;
+        int y = bottom - (int)((gbx_bass.note[s] - lo) * rows / (hi - lo));
+        int len = big ? 1 + (int)gbx_bass.gate[s] * (w - 1) / 16 : w - 1;
+        unsigned c = run && s == head ? PX_WHITE : (gbx_bass.accent >> s) & 1U ? PX_GOLD : PX_GREEN;
+        px_rect(x, y - (big ? 1 : 0), len, big ? 2 : 1, c);
+        if (big && ((gbx_bass.slide >> s) & 1U) && s && ((gbx_bass.on >> (s - 1)) & 1U)) {   /* the slide from the step before */
+            int py = bottom - (int)((gbx_bass.note[s - 1] - lo) * rows / (hi - lo));
+            for (int k = 0; k <= w; ++k) px_pset(x - w + k, py + (y - py) * k / w, PX_SLATE);
+        }
+    }
+    if (big) {   /* the range, low and high */
+        char t[6];
+        note_text((unsigned)hi, t); px_print(t, PX_W - 12, top, PX_DUSK);
+        note_text((unsigned)lo, t); px_print(t, PX_W - 12, bottom - 4, PX_DUSK);
+    }
+}
+static void draw_overview(void)
+{
+    /* four lanes, one bar each */
     unsigned head = cr78_playhead, run = cr78_running;
     for (unsigned t = 0; t < TRACKS; ++t) {
         int y = 16 + (int)t * 12;
         unsigned c = muted[t] ? PX_DUSK : track_color[t];
         px_print(track_short[t], 2, y + 2, c);
+        if (t == T_BASS) { draw_roll(y, y + 9, 0); continue; }
         if (t != T_DRUMS) { px_print("SOON", 20, y + 2, PX_DUSK); continue; }
-        for (unsigned s = 0; s < 16; ++s) {
+        for (unsigned s = 0; s < 16; ++s) {   /* DRUMS: taller where more voices hit */
             unsigned n = 0;
             for (unsigned v = 0; v < CR78_VOICES; ++v) n += (cr78.grid[v] >> s) & 1U;
             int x = 16 + (int)s * 4, h = n > 4 ? 9 : (int)n * 2 + 1;
@@ -176,7 +282,6 @@ static void draw_overview(uint32_t now)
             else px_pset(x + 1, y + 8, PX_DUSK);
         }
     }
-    (void)now;
 }
 static void draw_placeholder(void)
 {
@@ -191,28 +296,41 @@ static void draw(uint32_t now)
     px_cls(PX_NIGHT);
     const char *mode = zoom == OVERVIEW ? "GBX" : track_name[zoom];
     unsigned tint = zoom == OVERVIEW ? PX_GOLD : track_color[zoom];
-    if (zoom == T_DRUMS && held_steps) {   /* a held step: its ratchet and accent */
-        unsigned st = 0; while (!((held_steps >> st) & 1U)) ++st;
-        static char title[12];
-        strcpy(title, "STEP "); px_number((int)st + 1, title + 5);
+    unsigned st = 0;
+    if (held_steps) while (!((held_steps >> st) & 1U)) ++st;
+    static char title[12];
+    if (held_steps) { strcpy(title, "STEP "); px_number((int)st + 1, title + 5); }
+    if (zoom == T_DRUMS && held_steps) {   /* a held drum step: its ratchet and accent */
         struct px_page step = {title, {"RTCH", "ACC", "", ""}};
         px_number(cr78.ratchet[voice][st], v[0]); strcpy(v[1], (cr78.accent >> st) & 1U ? "ON" : "OFF"); v[2][0] = v[3][0] = 0;
         px_chrome_pads(mode, &step, 1, 0, value, key_row(), key_lit());
+    } else if (zoom == T_BASS && held_steps) {   /* a held bass step: length, velocity, slide, octave */
+        struct px_page step = {title, {"LEN", "VELO", "SLDE", "NOTE"}};
+        px_number(gbx_bass.gate[st], v[0]); strcat(v[0], "/16"); px_number(gbx_bass.vel[st], v[1]);
+        strcpy(v[2], (gbx_bass.slide >> st) & 1U ? "ON" : "OFF"); note_text(gbx_bass.note[st], v[3]);
+        px_chrome_pads(mode, &step, 1, 0, value, key_row(), key_lit());
     } else if (zoom == OVERVIEW) {
-        for (unsigned k = 0; k < 4; ++k) mix_text(page[0], k, v[k]);
+        for (unsigned k = 0; k < 4; ++k) knob_text(&mix_knob[page[0]][k], mix_val[page[0]][k], v[k]);
         px_chrome_pads(mode, mix_page, MIX_PAGES, page[0], value, key_row(), key_lit());
     } else if (zoom == T_DRUMS) {
         unsigned n; const struct px_page *pages = cr78_voice_pages(&n);
-        for (unsigned k = 0; k < 4; ++k) cr78_voice_text(voice, page[1 + T_DRUMS], k, v[k]);
-        px_chrome_pads(mode, pages, n, page[1 + T_DRUMS], value, key_row(), key_lit());
+        for (unsigned k = 0; k < 4; ++k) cr78_voice_text(voice, page[scope()], k, v[k]);
+        px_chrome_pads(mode, pages, n, page[scope()], value, key_row(), key_lit());
+    } else if (zoom == T_BASS) {
+        for (unsigned k = 0; k < 4; ++k) knob_text(&bass_knob[page[scope()]][k], bass_val[page[scope()]][k], v[k]);
+        px_chrome_pads(mode, bass_page, BASS_PAGES, page[scope()], value, key_row(), key_lit());
     } else {
         struct px_page none = {"", {"", "", "", ""}};
         px_chrome_pads(mode, &none, 1, 0, 0, key_row(), 0);
     }
     px_print(mode, 2, 1, tint);   /* the track's colour on its name */
     /* the line under the header: what is selected, and what is going on */
+    char line[16];
     if (zoom == T_DRUMS) px_print(cr78_voice_name(voice), 2, 8, cr78_voice_color(voice));
-    else if (zoom == OVERVIEW) px_print(cr78_preset_name(cr78_preset_index()), 2, 8, PX_SLATE);
+    else if (zoom == T_BASS) {
+        note_text(bass_note, line); strcat(line, " "); strcat(line, pitch_name[mix_val[3][0]]); strcat(line, " "); strcat(line, scale_name[mix_val[3][1]]);
+        px_print(line, 2, 8, PX_GREEN);
+    } else if (zoom == OVERVIEW) px_print(cr78_preset_name(cr78_preset_index()), 2, 8, PX_SLATE);
     if (rec) px_print("REC", PX_W - 13, 8, PX_RED);
     else if (zoom >= 0 && muted[zoom]) px_print("MUTE", PX_W - 17, 8, PX_RED);
     else if (pads_latched[scope()]) {
@@ -220,17 +338,19 @@ static void draw(uint32_t now)
         for (unsigned i = 0; i < PX_PADS && n < 3; ++i) if ((pads_latched[scope()] >> i) & 1U) { if (n++) strcat(on, " "); strcat(on, pad_name[i]); }
         px_print(on, PX_W - 1 - ((int)strlen(on) * 4 - 1), 8, PX_EMBER);
     }
-    if (zoom == OVERVIEW) draw_overview(now);
+    if (zoom == OVERVIEW) draw_overview();
     else if (zoom == T_DRUMS) cr78_draw_kit(voice, now);
+    else if (zoom == T_BASS) draw_roll(16, 58, 1);
     else draw_placeholder();
     px_flash_draw(now);
 }
 static void leds(uint32_t now)
 {
     uint32_t want = 0;
-    if (zoom == T_DRUMS)   /* the voice's steps, the playhead blinking */
+    uint16_t steps = zoom == T_DRUMS ? cr78.grid[voice] : zoom == T_BASS ? gbx_bass.on : 0;
+    if (zoom == T_DRUMS || zoom == T_BASS)   /* the track's steps, the playhead blinking */
         for (unsigned s = 0; s < 16; ++s) {
-            unsigned on = (cr78.grid[voice] >> s) & 1U;
+            unsigned on = (steps >> s) & 1U;
             if (cr78_running && s == cr78_playhead) on = !on || ((now / 60U) & 1U);
             if (on) want |= 1U << s;
         }
@@ -242,11 +362,7 @@ static void leds(uint32_t now)
         if (((want ^ led_state) >> (16 + i)) & 1U) fm1_led_set(PX_KEY_LED + black_keys[i], (want >> (16 + i)) & 1U);
     led_state = want;
 }
-static void flash_view(uint32_t now)
-{
-    if (zoom == OVERVIEW) px_flash("OVERVIEW", now, 600U);
-    else px_flash(track_name[zoom], now, 600U);
-}
+static void flash_view(uint32_t now) { px_flash(zoom == OVERVIEW ? "OVERVIEW" : track_name[zoom], now, 600U); }
 
 unsigned gbx_active(void) { return active; }
 
@@ -260,6 +376,7 @@ int gbx_control(const struct fm1_controls *c)
     if (!active) {
         if (!home) return 0;
         cr78_kit_ready();
+        if (!initialized) init();
         px_leds_off(); led_state = 0;
         active = 1; full_redraw = 1; last_ms = now - 100U; zoom = OVERVIEW;
         apply();
@@ -267,7 +384,8 @@ int gbx_control(const struct fm1_controls *c)
         return 1;
     }
     if (home) {   /* HOME: one level up */
-        pads_held[SCOPE_MIX] = pads_held[SCOPE_DRUMS] = 0; fx_held = 0; held_steps = 0;
+        for (unsigned i = 0; i < SCOPES; ++i) pads_held[i] = 0;
+        fx_held = 0; held_steps = 0;
         if (zoom != OVERVIEW) { zoom = OVERVIEW; apply(); flash_view(now); full_redraw = 1; return 1; }
         apply(); px_leds_off(); active = 0;
         return 2;
@@ -277,11 +395,11 @@ int gbx_control(const struct fm1_controls *c)
     /* ALGORITHM: along OVERVIEW, DRUMS, BASS, KEYS, LEAD */
     if (e[1]) {
         int z = clamp(zoom + e[1], OVERVIEW, TRACKS - 1);
-        if (z != zoom) { zoom = z; pads_held[SCOPE_MIX] = pads_held[SCOPE_DRUMS] = 0; apply(); flash_view(now); }
+        if (z != zoom) { pads_held[scope()] = 0; zoom = z; apply(); flash_view(now); }
         changed = 1;
     }
     /* REC: live playing goes into the steps */
-    if (pressed & PX_BIT(PX_REC) && !fx_held) { rec ^= 1U; px_flash(rec ? "REC ON" : "REC OFF", now, 500U); changed = 1; }
+    if ((pressed & PX_BIT(PX_REC)) && !fx_held) { rec ^= 1U; px_flash(rec ? "REC ON" : "REC OFF", now, 500U); changed = 1; }
     /* FX: tapped, mute (the overview: all tracks); held, the black keys throw effects */
     if (pressed & PX_BIT(PX_FX)) { fx_held = 1; fx_used = 0; changed = 1; }
     if (fx_held && !(c->buttons & PX_BIT(PX_FX))) {
@@ -292,20 +410,33 @@ int gbx_control(const struct fm1_controls *c)
         }
         apply();
     }
+    /* OCT -/+: the black keys' octave (BASS) */
+    if (zoom == T_BASS && !held_steps) {
+        if ((pressed & PX_BIT(PX_OCT_DOWN)) && bass_oct > 0) { --bass_oct; px_flash(bass_oct ? "OCT DOWN" : "LOWEST", now, 400U); changed = 1; }
+        if ((pressed & PX_BIT(PX_OCT_UP)) && bass_oct < 3) { ++bass_oct; px_flash("OCT UP", now, 400U); changed = 1; }
+    }
     /* white keys */
     held_steps = 0;
     for (unsigned s = 0; s < 16; ++s) {
         unsigned key = white_keys[s];
-        if (zoom == T_DRUMS && ((c->keys >> key) & 1U)) held_steps |= (uint16_t)(1U << s);
+        if ((zoom == T_DRUMS || zoom == T_BASS) && ((c->keys >> key) & 1U)) held_steps |= (uint16_t)(1U << s);
         if (!((down >> key) & 1U)) continue;
+        uint16_t bit = (uint16_t)(1U << s);
         if (zoom == OVERVIEW) {   /* a pattern (the drums' eight, for now) */
             if (s < cr78_preset_count()) { cr78_preset(s); mix_val[0][1] = 50; px_flash(cr78_preset_name(s), now, 700U); }
         } else if (zoom == T_DRUMS) {
-            uint16_t bit = (uint16_t)(1U << s);
             if (c->buttons & PX_BIT(PX_ENV)) cr78.accent ^= bit;
             else {
                 cr78.grid[voice] ^= bit;
                 if (cr78.grid[voice] & bit) { cr78.ratchet[voice][s] = 1; if (!cr78_running) (void)cr78_audition(voice, 0); }
+            }
+        } else if (zoom == T_BASS) {
+            if (c->buttons & PX_BIT(PX_ENV)) gbx_bass.accent ^= bit;
+            else if (gbx_bass.on & bit) gbx_bass.on &= (uint16_t)~bit;
+            else {   /* a new step gets the note you last played */
+                gbx_bass.note[s] = (uint8_t)bass_note; gbx_bass.gate[s] = 10; gbx_bass.vel[s] = 100;
+                gbx_bass.on |= bit;
+                if (!cr78_running) (void)gbx_audition(bass_note);
             }
         }
         changed = 1;
@@ -336,17 +467,31 @@ int gbx_control(const struct fm1_controls *c)
                 if (rec && cr78_running) { cr78.grid[v] |= (uint16_t)(1U << cr78_playhead); cr78.ratchet[v][cr78_playhead] = 1; }
                 if (!cr78_running || rec) (void)cr78_audition(v, 1);
             }
+        } else if (zoom == T_BASS) {
+            unsigned note = key_note(i, bass_oct);
+            if (held_steps) {   /* a held step: its note */
+                for (unsigned s = 0; s < 16; ++s) if ((held_steps >> s) & 1U) { gbx_bass.note[s] = (uint8_t)note; gbx_bass.on |= (uint16_t)(1U << s); }
+                (void)gbx_audition(note);
+            } else {
+                bass_note = note;
+                if (rec && cr78_running) {   /* live: into the step playing */
+                    unsigned s = cr78_playhead;
+                    gbx_bass.note[s] = (uint8_t)note; gbx_bass.gate[s] = 10; gbx_bass.vel[s] = 100; gbx_bass.on |= (uint16_t)(1U << s);
+                }
+                if (!cr78_running || rec) (void)gbx_audition(note);
+            }
         }
     }
     if (held != pads_held[scope()] || (fx_held && changed)) { pads_held[scope()] = held; apply(); }
     /* SELECT: the view's pages; PRESETS: the drum pattern */
     if (e[0]) {
         unsigned n = 1;
-        if (zoom == OVERVIEW) n = MIX_PAGES; else if (zoom == T_DRUMS) (void)cr78_voice_pages(&n);
-        unsigned *pg = &page[zoom + 1];
+        if (zoom == OVERVIEW) n = MIX_PAGES; else if (zoom == T_DRUMS) (void)cr78_voice_pages(&n); else if (zoom == T_BASS) n = BASS_PAGES;
+        unsigned *pg = &page[scope()];
         *pg = (unsigned)clamp((int)*pg + e[0], 0, (int)n - 1);
         if (zoom == OVERVIEW) px_flash(mix_page[*pg].name, now, 600U);
         else if (zoom == T_DRUMS) { unsigned m; px_flash(cr78_voice_pages(&m)[*pg].name, now, 600U); }
+        else if (zoom == T_BASS) px_flash(bass_page[*pg].name, now, 600U);
         changed = 1;
     }
     if (e[6] && zoom <= T_DRUMS) {
@@ -365,23 +510,41 @@ int gbx_control(const struct fm1_controls *c)
                 if (k[0]) cr78_set_ratchet(voice, s, (int)cr78.ratchet[voice][s] + k[0]);
                 if (k[1]) cr78.accent = (uint16_t)(k[1] > 0 ? cr78.accent | (1U << s) : cr78.accent & ~(1U << s));
             }
+        } else if (zoom == T_BASS && held_steps) {   /* a held step: length, velocity, slide, an octave up or down */
+            for (unsigned s = 0; s < 16; ++s) {
+                if (!((held_steps >> s) & 1U)) continue;
+                if (k[0]) gbx_bass.gate[s] = (uint8_t)clamp(gbx_bass.gate[s] + k[0], 1, 16);
+                if (k[1]) gbx_bass.vel[s] = (uint8_t)clamp(gbx_bass.vel[s] + k[1] * 8, 1, 127);
+                if (k[2]) gbx_bass.slide = (uint16_t)(k[2] > 0 ? gbx_bass.slide | (1U << s) : gbx_bass.slide & ~(1U << s));
+                if (k[3]) gbx_bass.note[s] = (uint8_t)clamp(gbx_bass.note[s] + (k[3] > 0 ? 12 : -12), 24, 72);
+                gbx_bass.on |= (uint16_t)(1U << s);
+            }
         } else if (zoom == OVERVIEW) {
             unsigned pg = page[0];
             for (unsigned i = 0; i < 4; ++i) {
                 const struct knob *kn = &mix_knob[pg][i];
-                if (!k[i]) continue;
+                if (!k[i] || !kn->label[0]) continue;
                 if (kn->kind == K_TEMPO) { groove_tempo_edit(k[i]); continue; }
                 int x = clamp(mix_val[pg][i] + k[i] * kn->step, kn->lo, kn->hi);
                 if (kn->kind == K_FILTER && x > -3 && x < 3) x = 0;
                 mix_val[pg][i] = (int16_t)x;
             }
             apply();
-            mix_text(pg, last, value); readout(0, mix_knob[pg][last].label, value, now);
+            if (mix_knob[pg][last].label[0]) { knob_text(&mix_knob[pg][last], mix_val[pg][last], value); readout(0, mix_knob[pg][last].label, value, now); }
         } else if (zoom == T_DRUMS) {
-            unsigned pg = page[1 + T_DRUMS];
+            unsigned pg = page[scope()];
             for (unsigned i = 0; i < 4; ++i) if (k[i]) cr78_voice_turn(voice, pg, i, k[i]);
             if (!cr78_running) (void)cr78_audition(voice, 0);
             if (cr78_voice_knob(pg, last)[0]) { cr78_voice_text(voice, pg, last, value); readout(cr78_voice_short(voice), cr78_voice_knob(pg, last), value, now); }
+        } else if (zoom == T_BASS) {
+            unsigned pg = page[scope()];
+            for (unsigned i = 0; i < 4; ++i) {
+                const struct knob *kn = &bass_knob[pg][i];
+                if (k[i]) bass_val[pg][i] = (int16_t)clamp(bass_val[pg][i] + k[i] * kn->step, kn->lo, kn->hi);
+            }
+            build_bass();
+            if (!cr78_running) (void)gbx_audition(bass_note);
+            knob_text(&bass_knob[pg][last], bass_val[pg][last], value); readout("BAS", bass_knob[pg][last].label, value, now);
         }
     }
     if (pressed & PX_BIT(PX_PLAY)) {

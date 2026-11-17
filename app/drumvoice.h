@@ -55,6 +55,9 @@ extern struct dv_tables dv;
  * the voice that many samples instead of its own gate. level is Q15. */
 FM1_AUDIO_CODE void dv_trigger(const struct dv_voice *voice, int boost, uint32_t delay,
                                int32_t level, uint32_t gate, int note, unsigned bus);
+/* ... starting `glide` semitones away from the note and sliding onto it in ~60 ms (-8..+24) */
+FM1_AUDIO_CODE void dv_trigger_glide(const struct dv_voice *voice, int boost, uint32_t delay,
+                                     int32_t level, uint32_t gate, int note, unsigned bus, int glide);
 /* Render every sounding partial into its bus (mono Q15 per frame, added). */
 FM1_AUDIO_CODE void dv_render(int32_t (*bus)[FM1_BLOCK_FRAMES]);
 
