@@ -15,7 +15,8 @@
  *   REC               live: the black keys play and write into the step playing
  *   FX tapped / held  mute / throw an effect on this track while held (REC too: latch)
  * Overview: four lanes; black keys 1-4 mute the tracks; white keys the 16 patterns (all four tracks'
- * steps; from the next bar; an empty one starts as a copy of the one playing); PRESETS a drum pattern
+ * steps; from the next bar; an empty one starts as a copy of the one playing). Hold a pattern + another
+ * white key: copy it there; + black key 1-4: clear that track in it. PRESETS a drum pattern
  * into the pattern playing; knobs MIX (TEMPO SWING FILTER PUMP), FX (DRIVE CRUSH GATE SWEEP), LEVELS,
  * KEY (ROOT SCALE). */
 #include "gbx.h"
@@ -79,6 +80,7 @@ static int16_t keys_size = 3, keys_strum = 0;  /* notes in a chord (3 triad, 4 s
 static const struct px_page keys_chord_page = {"CHORD", {"SIZE", "STRM", "", ""}};
 static uint32_t prev_buttons, prev_keys, last_ms, led_state;
 static uint16_t held_steps, patterns_used = 1;   /* the slots that hold a pattern (1 plays at power-on) */
+static unsigned pattern_held = GBX_NONE, pattern_used_hold;   /* the overview's held pattern key; copied or cleared with it */
 
 static int clamp(int v, int lo, int hi) { return v < lo ? lo : v > hi ? hi : v; }
 static float exp2_approx(float x)
@@ -472,7 +474,7 @@ int gbx_control(const struct fm1_controls *c)
 {
     uint32_t now = fm1_millis();
     uint32_t pressed = c->buttons & ~prev_buttons;
-    uint32_t down = c->keys & ~prev_keys;
+    uint32_t down = c->keys & ~prev_keys, up = prev_keys & ~c->keys;
     unsigned home = px_mode_toggle(pressed, PX_MODE_GBX, active);
     prev_buttons = c->buttons; prev_keys = c->keys;
     if (!active) {
@@ -489,7 +491,7 @@ int gbx_control(const struct fm1_controls *c)
     }
     if (home) {   /* HOME: one level up */
         for (unsigned i = 0; i < SCOPES; ++i) pads_held[i] = 0;
-        fx_held = 0; held_steps = 0;
+        fx_held = 0; held_steps = 0; pattern_held = GBX_NONE;
         if (zoom != OVERVIEW) { zoom = OVERVIEW; apply(); flash_view(now); full_redraw = 1; return 1; }
         apply(); px_leds_off(); active = 0;
         return 2;
@@ -499,7 +501,7 @@ int gbx_control(const struct fm1_controls *c)
     /* ALGORITHM: along OVERVIEW, DRUMS, BASS, KEYS, LEAD */
     if (e[1]) {
         int z = clamp(zoom + e[1], OVERVIEW, TRACKS - 1);
-        if (z != zoom) { pads_held[scope()] = 0; zoom = z; apply(); flash_view(now); }
+        if (z != zoom) { pads_held[scope()] = 0; zoom = z; pattern_held = GBX_NONE; apply(); flash_view(now); }
         changed = 1;
     }
     /* REC: live playing goes into the steps */
@@ -532,15 +534,24 @@ int gbx_control(const struct fm1_controls *c)
     for (unsigned s = 0; s < 16; ++s) {
         unsigned key = white_keys[s];
         if (zoom != OVERVIEW && ((c->keys >> key) & 1U)) held_steps |= (uint16_t)(1U << s);
-        if (!((down >> key) & 1U)) continue;
         uint16_t bit = (uint16_t)(1U << s);
-        if (zoom == OVERVIEW) {   /* a pattern, from the next bar; an empty slot starts as a copy */
-            if (s != gbx_pattern_now || gbx_pattern_next != GBX_NONE) {
+        if (zoom == OVERVIEW && ((up >> key) & 1U) && s == pattern_held) {   /* released: switch, unless it copied or cleared */
+            pattern_held = GBX_NONE; changed = 1;
+            if (!pattern_used_hold && (s != gbx_pattern_now || gbx_pattern_next != GBX_NONE)) {
                 unsigned fresh = !((patterns_used >> s) & 1U);
                 gbx_pattern_queue(s, fresh);
                 patterns_used |= bit;
                 static char t[16]; strcpy(t, "PATTERN "); px_number((int)s + 1, t + 8); if (fresh) strcat(t, " NEW");
                 px_flash(t, now, 700U);
+            }
+        }
+        if (!((down >> key) & 1U)) continue;
+        if (zoom == OVERVIEW) {   /* a pattern key down: held; another while held: copy onto it */
+            if (pattern_held == GBX_NONE) { pattern_held = s; pattern_used_hold = 0; }
+            else if (s != pattern_held && gbx_pattern_copy(pattern_held, s) == 0) {
+                pattern_used_hold = 1; patterns_used |= bit;
+                static char t[20]; strcpy(t, "COPY "); px_number((int)pattern_held + 1, t + 5);
+                strcat(t, " TO "); px_number((int)s + 1, t + strlen(t)); px_flash(t, now, 800U);
             }
         } else if (zoom == T_DRUMS) {
             if (c->buttons & PX_BIT(PX_ENV)) cr78.accent ^= bit;
@@ -591,7 +602,13 @@ int gbx_control(const struct fm1_controls *c)
         }
         if (!hit) continue;
         changed = 1;
-        if (zoom == OVERVIEW) {   /* mute a track */
+        if (zoom == OVERVIEW && pattern_held != GBX_NONE) {   /* a held pattern: clear that track in it */
+            if (i < TRACKS && gbx_pattern_clear(pattern_held, i) == 0) {
+                pattern_used_hold = 1;
+                static char t[20]; strcpy(t, "CLEAR "); strcat(t, track_short[i]); strcat(t, " "); px_number((int)pattern_held + 1, t + strlen(t));
+                px_flash(t, now, 800U);
+            }
+        } else if (zoom == OVERVIEW) {   /* mute a track */
             if (i < TRACKS) { muted[i] ^= 1U; static char t[12]; strcpy(t, track_short[i]); strcat(t, muted[i] ? " OFF" : " ON"); px_flash(t, now, 500U); apply(); }
         } else if (zoom == T_DRUMS) {
             unsigned v = cr78_black_voice(i);

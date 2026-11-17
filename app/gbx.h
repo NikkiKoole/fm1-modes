@@ -48,6 +48,10 @@ int gbx_lead_audition(unsigned note, uint32_t gate);
 enum { GBX_PATTERNS = 16, GBX_NONE = 255 };
 extern volatile uint8_t gbx_pattern_now, gbx_pattern_next;
 void gbx_pattern_queue(unsigned p, unsigned keep);
+/* Copy pattern `from` onto `to`; clear track t's steps (0 DRUMS, 1 BASS, 2 KEYS, 3 LEAD) in pattern p.
+ * Done by the audio side on its next block; returns -1 while the last one is still pending. */
+int gbx_pattern_copy(unsigned from, unsigned to);
+int gbx_pattern_clear(unsigned p, unsigned t);
 
 int gbx_control(const struct fm1_controls *controls);
 unsigned gbx_active(void);

@@ -131,6 +131,46 @@ static FM1_AUDIO_CODE void pattern_load(const struct gbx_pattern *p)
     }
     gbx_keys.accent = p->keys_accent; gbx_keys.on = p->keys_on;
 }
+/* copy and clear: one pending command, run by the audio side (the playing pattern is the tracks) */
+enum { CMD_NONE, CMD_COPY, CMD_CLEAR };
+static volatile uint8_t cmd, cmd_a, cmd_b;
+int gbx_pattern_copy(unsigned from, unsigned to)
+{
+    if (cmd || from >= GBX_PATTERNS || to >= GBX_PATTERNS) return -1;
+    cmd_a = (uint8_t)from; cmd_b = (uint8_t)to; BARRIER(); cmd = CMD_COPY;
+    return 0;
+}
+int gbx_pattern_clear(unsigned p, unsigned t)
+{
+    if (cmd || p >= GBX_PATTERNS || t > 3U) return -1;
+    cmd_a = (uint8_t)p; cmd_b = (uint8_t)t; BARRIER(); cmd = CMD_CLEAR;
+    return 0;
+}
+static FM1_AUDIO_CODE void line_clear(struct line_steps *l) { l->on = l->slide = l->accent = 0; }
+static FM1_AUDIO_CODE void run_command(void)
+{
+    unsigned c = cmd, a = cmd_a, b = cmd_b, playing = gbx_pattern_now;
+    BARRIER();
+    if (c == CMD_COPY && a != b) {
+        if (a == playing) pattern_save(&patterns[b]);
+        else {   /* byte by byte through volatile: no memcpy into Flash */
+            const volatile uint8_t *src = (const volatile uint8_t *)&patterns[a];
+            volatile uint8_t *dst = (volatile uint8_t *)&patterns[b];
+            for (unsigned i = 0; i < sizeof patterns[0]; ++i) dst[i] = src[i];
+            if (b == playing) pattern_load(&patterns[b]);
+        }
+    } else if (c == CMD_CLEAR) {
+        if (a == playing) pattern_save(&patterns[a]);
+        struct gbx_pattern *p = &patterns[a];
+        if (b == 0) { for (unsigned v = 0; v < CR78_VOICES; ++v) p->grid[v] = 0; p->accent = 0; }
+        else if (b == 1) line_clear(&p->bass);
+        else if (b == 3) line_clear(&p->lead);
+        else { p->keys_on = 0; p->keys_accent = 0; }
+        if (a == playing) pattern_load(p);
+    }
+    BARRIER(); cmd = CMD_NONE;
+}
+
 static FM1_AUDIO_CODE void pattern_swap(void)
 {
     unsigned next = gbx_pattern_next;
@@ -142,6 +182,7 @@ static FM1_AUDIO_CODE void pattern_swap(void)
 
 FM1_AUDIO_CODE void gbx_tick(void)
 {
+    if (cmd) run_command();
     if (!cr78_running) pattern_swap();   /* stopped: at once */
     while (chord_tail != chord_head) {
         uint32_t tail = chord_tail; BARRIER();
