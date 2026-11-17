@@ -6,7 +6,9 @@
  *   white keys 9-12   CHORDS    four parts; one at a time
  *   white keys 13-16  MELODY    four parts; one at a time
  *   black keys        the eleven effect pads, on the whole mix, while held
- *   PRESETS           the bank: HOUSE, HIP HOP, DISCO (its tempo, swing, progression, sounds)
+ *   PRESETS           the bank: HOUSE, HIP HOP, DISCO (its tempo, swing, progression, sounds, drum kit)
+ *   SAVE + white key  store what plays (the bank and its loops) as scene 1-16
+ *   GLO + white key   play scene 1-16 from the next bar (1-4 come as INTRO VERSE FULL BREAK)
  *   KNOB 1-4          FILTER (left low pass, right high pass), PUMP, SWING, TEMPO
  *   PLAY              play / stop (the first loop switched on starts it)
  *   HOME              back
@@ -19,6 +21,8 @@
  * ('AAABAAAC': the same bar three times, a turn into the fifth bar, a bigger one back to the top).
  * Written in the minor pentatonic, a riff follows the chord: over a major chord its notes move to the
  * same places on the major pentatonic. The chord parts are rhythms that strike the bar's chord.
+ * With the snare (BEAT 2) on, the drums mark the phrase: a small fill ends bar 4, a bigger one bar 8,
+ * a crash starts bar 1. Each bank sets the CR-78 kit its own way (the GROOVEBOX's kit comes back after).
  * They play on the GROOVEBOX's four tracks, which the deck borrows (gbx_deck_on) and gives back when
  * the GROOVEBOX opens. */
 #include "deck.h"
@@ -30,19 +34,28 @@
 #include "mysynth.h"
 #include <string.h>
 
-enum { V_KICK = 0, V_SNARE = 1, V_RIM = 2, V_HHC = 3, V_HHO = 4, V_COW = 7, V_TAMB = 8, V_MAR = 9, V_CONGA = 14 };
+enum { V_KICK = 0, V_SNARE = 1, V_RIM = 2, V_HHC = 3, V_HHO = 4, V_CYM = 5, V_COW = 7, V_TAMB = 8, V_MAR = 9, V_BONH = 12,
+       V_BONL = 13, V_CONGA = 14 };
 enum { PARTS = 4, LOOPS = 4, ROWS = 3, BARS = GBX_DECK_BARS };
 struct beat { const char *name; struct { uint8_t voice; const char *steps; } row[ROWS]; };   /* x a hit, X accented */
 /* a riff: degrees R 2 m 3 4 b 5 6 7 8 (the octave), L (the fifth below), A (a half step under the next
  * bar's root), N (the next bar's root, early); '-' holds, '.' rests. A phrase shorter than 16 repeats. */
 struct riff { const char *name, *phrase, *var[3], *form; };   /* var: B C D */
 struct rhythm { const char *name, *steps; };                     /* X strikes the bar's chord, '-' holds */
+/* the kit: a knob of a voice's pages (0 SOUND: TUNE DEC CUT DRV, 1 PITCH: BEND BTIM FINE ATK,
+ * 2 BODY: SUB BAL CLK CPIT, 3 MOD, 4 LEVEL: LVL ACC CLEN) set outright, over the voice as built */
+struct tweak { uint8_t voice, page, knob; int16_t value; };
+enum { TWEAKS = 12 };
+/* a fill: rows laid over the bar's beat (a space keeps it, x a hit, '.' takes one out) */
+struct fill { struct { uint8_t voice; const char *steps; } row[ROWS]; };
 struct bank {
     const char *name;
     uint8_t tempo, swing;                 /* BPM; swing 50..66 */
     uint8_t keys_patch, lead_patch;       /* MY SYNTH patches: 0 INIT 1 PAD 2 BRASS 3 PLUCK 4 BASS 5 LEAD */
     int16_t bass_sound[2][4];             /* {CUT RES DEC SUB}, {WAVE DRV ATK PTCH} */
     const char *progression;              /* eight chords, one a bar */
+    struct tweak kit[TWEAKS];
+    struct fill fill[2];                  /* the end of bar 4, of bar 8 */
     struct beat beat[LOOPS];
     struct riff bass[LOOPS];
     struct rhythm chords[LOOPS];
@@ -52,6 +65,9 @@ struct bank {
 static const struct bank banks[] = {
     {"HOUSE", 124, 52, 3, 5, {{45, 40, 30, 70}, {0, 0, 1, 0}},
      "Am7 Am7 Fmaj7 G Am7 Am7 Fmaj7 Em7",
+     {{V_KICK, 0, 1, 170}, {V_KICK, 1, 0, 14}, {V_KICK, 1, 1, 45}, {V_KICK, 2, 2, 35}, {V_KICK, 0, 3, 20}, {V_KICK, 2, 0, 25},
+      {V_SNARE, 2, 1, 40}, {V_SNARE, 0, 1, 130}, {V_HHO, 0, 1, 150}},
+     {{{{V_SNARE, "            x.x."}}}, {{{V_SNARE, "        x.x.xxxx"}, {V_HHO, "          ......"}}}},
      {{"KICK", {{V_KICK, "X...x...X...x..."}}},
       {"CLAP", {{V_SNARE, "....x.......x..."}, {V_RIM, "....x.......x..x"}}},
       {"HATS", {{V_HHO, "..x...x...x...x."}, {V_HHC, "x.x.x.x.x.x.x.x."}}},
@@ -67,6 +83,9 @@ static const struct bank banks[] = {
       {"STRINGS", "5---------------", {"m---------------", "4-------m-------"}, "ABABABAC"}}},
     {"HIP HOP", 90, 60, 1, 3, {{30, 20, 60, 70}, {0, 10, 2, 0}},
      "Cm7 Cm7 Abmaj7 Gm7 Cm7 Cm7 Abmaj7 G7",
+     {{V_KICK, 0, 0, -3}, {V_KICK, 0, 1, 220}, {V_KICK, 2, 0, 50}, {V_KICK, 1, 0, 8}, {V_KICK, 1, 1, 70}, {V_KICK, 0, 3, 30},
+      {V_SNARE, 0, 0, -2}, {V_SNARE, 0, 1, 140}, {V_SNARE, 0, 3, 25}, {V_HHC, 0, 2, 70}},
+     {{{{V_SNARE, "             x.x"}}}, {{{V_SNARE, "          x..xxx"}, {V_KICK, "          .     "}, {V_HHC, "          ......"}}}},
      {{"KICK", {{V_KICK, "x......x..x....."}}},
       {"SNARE", {{V_SNARE, "....x.......x..."}}},
       {"HATS", {{V_HHC, "x.x.x.x.x.x.x.xx"}}},
@@ -82,6 +101,8 @@ static const struct bank banks[] = {
       {"LONG", "5---------------", {"m---------------", "4-------m-------"}, "ABABABAC"}}},
     {"DISCO", 118, 50, 2, 3, {{70, 30, 25, 40}, {1, 0, 0, 0}},
      "Em7 A7 Em7 A7 Em7 A7 Cmaj7 B7",
+     {{V_KICK, 0, 1, 130}, {V_KICK, 2, 0, 30}, {V_KICK, 2, 2, 25}, {V_SNARE, 2, 1, 30}, {V_SNARE, 0, 1, 110}, {V_HHO, 0, 1, 190}},
+     {{{{V_HHO, "              xx"}}}, {{{V_SNARE, "        x.x.x.xx"}, {V_CONGA, "         x.x.x.."}, {V_HHO, "          ......"}}}},
      {{"KICK", {{V_KICK, "x...x...x...x..."}}},
       {"CLAP", {{V_SNARE, "....x.......x..."}}},
       {"HATS", {{V_HHO, "..x...x...x...x."}, {V_HHC, "x...x...x...x..."}}},
@@ -210,7 +231,12 @@ static uint16_t want, playing;          /* bit 4 * part + loop */
 static uint8_t last_bar = 255;
 static uint32_t prev_buttons, prev_keys, last_ms, led_state, pads;
 static int16_t knob[4] = {0, 0, 50, 0};   /* FILTER -100..100, PUMP 0..100, SWING 50..66, TEMPO (shown) */
-static uint8_t saved_synth[MYSYNTH_STATE_BYTES];
+static uint8_t saved_synth[MYSYNTH_STATE_BYTES], saved_kit[1100];
+/* scenes: a bank and its loops (bank 255: whatever bank plays) */
+enum { SCENES = 16 };
+static struct { uint8_t bank, used; uint16_t want; } scenes[SCENES] = {
+    {255, 1, 0x0005}, {255, 1, 0x0017}, {255, 1, 0x111F}, {255, 1, 0x1104}};   /* kick+hats; +clap, bass; all; no kick */
+static const char *const scene_name[4] = {"INTRO", "VERSE", "FULL", "BREAK"};
 static const uint8_t white_keys[16] = {0, 2, 4, 6, 7, 9, 11, 12, 14, 16, 18, 19, 21, 23, 24, 26};
 static const uint8_t black_keys[PX_PADS] = {1, 3, 5, 8, 10, 13, 15, 17, 20, 22, 25};
 static const char *const pad_name[PX_PADS] = {"R16", "R32", "HLF", "REV", "LPF", "HPF", "CRS", "GAT", "DRV", "PMP", "SWP"};
@@ -238,6 +264,21 @@ static void compile(void)
                 }
         }
     }
+    if (want & 2U) {   /* the snare marks the phrase: fills into bars 5 and 1, a crash on 1 */
+        for (unsigned f = 0; f < 2; ++f) {
+            struct gbx_pattern *p = &gbx_deck[f ? BARS - 1U : BARS / 2U - 1U];
+            for (unsigned r = 0; r < ROWS; ++r) {
+                const char *row = k->fill[f].row[r].steps;
+                if (!row) continue;
+                unsigned v = k->fill[f].row[r].voice;
+                for (unsigned s = 0; s < 16 && row[s]; ++s) {
+                    if (row[s] == 'x') p->grid[v] |= (uint16_t)(1U << s);
+                    else if (row[s] == '.') p->grid[v] &= (uint16_t)~(1U << s);
+                }
+            }
+        }
+        gbx_deck[0].grid[V_CYM] |= 1U;
+    }
     for (unsigned j = 0; j < LOOPS; ++j) {
         if ((want >> (4U + j)) & 1U) compile_riff(&k->bass[j], 1, 28);     /* roots E1 .. D#2 */
         if ((want >> (8U + j)) & 1U) compile_rhythm(&k->chords[j]);
@@ -251,6 +292,9 @@ static void bank_sound(void)
     const struct bank *k = &banks[bank];
     gbx_bass_sound(k->bass_sound);
     mysynth_patch(k->keys_patch); mysynth_lead_patch(k->lead_patch);
+    for (unsigned v = 0; v < CR78_VOICES; ++v) cr78_voice_reset(v);   /* the bank's kit */
+    for (unsigned t = 0; t < TWEAKS; ++t)
+        if (k->kit[t].page || k->kit[t].knob || k->kit[t].value) cr78_voice_set(k->kit[t].voice, k->kit[t].page, k->kit[t].knob, k->kit[t].value);
     groove_tempo_edit((int)k->tempo - (int)groove_tempo_current());
     knob[2] = k->swing;
 }
@@ -281,6 +325,7 @@ void deck_release(void)
     if (!gbx_deck_on) return;
     gbx_deck_on = 0;
     mysynth_state_set(saved_synth);
+    if (cr78_kit_bytes() <= sizeof saved_kit) cr78_kit_set(saved_kit);
 }
 unsigned deck_active(void) { return active; }
 
@@ -289,6 +334,7 @@ static const char *loop_name(const struct bank *k, unsigned part, unsigned j)
 {
     return part == 0 ? k->beat[j].name : part == 1 ? k->bass[j].name : part == 2 ? k->chords[j].name : k->melody[j].name;
 }
+static unsigned scene_view;   /* 1 SAVE held, 2 GLO held */
 static void draw(uint32_t now)
 {
     const struct bank *k = &banks[bank];
@@ -306,6 +352,18 @@ static void draw(uint32_t now)
     px_print(k->name, 2, 8, PX_WHITE);
     /* four parts of four loops, as the keys lie: on filled, waiting to change blinking */
     unsigned blink = (now / 140U) & 1U;
+    if (scene_view) {   /* SAVE / GLO held: the sixteen scenes, the one like what plays bright */
+        px_print(scene_view == 1 ? "STORE A SCENE" : "PLAY A SCENE", 2, 17, PX_GOLD);
+        for (unsigned s = 0; s < SCENES; ++s) {
+            int x = 1 + (int)s * 5, y = 26;
+            unsigned same = scenes[s].used && scenes[s].want == want && (scenes[s].bank == 255 || scenes[s].bank == bank);
+            if (scenes[s].used) px_rect(x, y, 4, 12, same ? PX_WHITE : PX_SLATE);
+            else { px_rect(x, y, 4, 1, PX_DUSK); px_rect(x, y + 11, 4, 1, PX_DUSK); }
+        }
+        px_print("1 INTRO 2 VERSE", 2, 42, PX_SLATE); px_print("3 FULL 4 BREAK", 2, 48, PX_SLATE);
+        px_flash_draw(now);
+        return;
+    }
     for (unsigned part = 0; part < PARTS; ++part) {
         int x0 = 1 + (int)part * 20;
         px_print(part_name[part], x0, 17, part_color[part]);
@@ -334,6 +392,7 @@ static void leds(uint32_t now)
 {
     uint32_t show = playing;
     if ((now / 140U) & 1U) show ^= want ^ playing;   /* waiting: blinking */
+    if (scene_view) { show = 0; for (unsigned s = 0; s < SCENES; ++s) if (scenes[s].used) show |= 1U << s; }
     uint32_t all = show | (pads << 16);
     for (unsigned s = 0; s < 16; ++s)
         if (((all ^ led_state) >> s) & 1U) fm1_led_set(PX_KEY_LED + white_keys[s], (all >> s) & 1U);
@@ -355,6 +414,7 @@ int deck_control(const struct fm1_controls *c)
         if (!gbx_deck_on) {   /* borrow the tracks: the GROOVEBOX's pattern into its slot, MY SYNTH's sounds aside */
             gbx_pattern_take(&gbx_patterns[gbx_pattern_now]);
             mysynth_state_get(saved_synth);
+            if (cr78_kit_bytes() <= sizeof saved_kit) cr78_kit_get(saved_kit);
             bank_sound();
             compile();
             gbx_deck_on = 1;
@@ -370,8 +430,31 @@ int deck_control(const struct fm1_controls *c)
     /* what was waiting plays from the next bar (stopped: as soon as the audio side has it) */
     if ((cr78_running ? gbx_deck_bar != last_bar : !gbx_deck_dirty) && playing != want) { playing = want; changed = 1; }
     last_bar = gbx_deck_bar;
+    /* SAVE / GLO held: the white keys are the scenes */
+    unsigned store = (c->buttons & PX_BIT(PX_SAVE)) != 0, recall = !store && (c->buttons & PX_BIT(PX_GLO)) != 0;
+    unsigned view = store ? 1U : recall ? 2U : 0U;
+    if (view != scene_view) { scene_view = view; changed = 1; }
+    if (store || recall) {
+        for (unsigned s = 0; s < 16; ++s) {
+            if (!((down >> white_keys[s]) & 1U)) continue;
+            static char text[24];
+            strcpy(text, "SCENE "); px_number((int)s + 1, text + 6);
+            if (store) { scenes[s].bank = (uint8_t)bank; scenes[s].used = 1; scenes[s].want = want; strcat(text, " STORED"); }
+            else if (scenes[s].used) {
+                if (scenes[s].bank != 255 && scenes[s].bank != bank) { bank = scenes[s].bank; bank_sound(); apply(); }
+                want = scenes[s].want; compile();
+                if (s < 4 && scenes[s].bank == 255) strcpy(text, scene_name[s]);
+                if (!cr78_running && want) {
+                    struct groove_view view = {0}; groove_get_view(0, 0, &view);
+                    if (!view.playing) { const uint8_t command = 0xfb; (void)groove_midi_local(&command, 1); }
+                }
+            } else strcat(text, " EMPTY");
+            px_flash(text, now, 700U);
+            changed = 1;
+        }
+    }
     /* white keys: the loops */
-    for (unsigned s = 0; s < 16; ++s) {
+    for (unsigned s = 0; s < 16 && !store && !recall; ++s) {
         if (!((down >> white_keys[s]) & 1U)) continue;
         unsigned part = s / 4U;
         uint16_t bit = (uint16_t)(1U << s), group = (uint16_t)(15U << (4U * part));

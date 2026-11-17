@@ -712,3 +712,21 @@ void cr78_kit_set(const void *in)
     memcpy(shape, in, sizeof shape); memcpy(cut, (const uint8_t *)in + sizeof shape, sizeof cut);
     for (unsigned v = 0; v < NV; ++v) build_voice(v);
 }
+
+/* a voice back to as built, and one knob of its pages (SOUND PITCH BODY MOD LEVEL) set outright */
+void cr78_voice_reset(unsigned v)
+{
+    if (!initialized) init();
+    if (v >= NV) return;
+    shape_defaults(v); build_voice(v);
+}
+void cr78_voice_set(unsigned v, unsigned pg, unsigned k, int value)
+{
+    if (!initialized) init();
+    if (v >= NV || pg >= VOICE_PAGES || k > 3U) return;
+    const struct knob *kn = &voice_knob[pg][k];
+    int16_t *r = voice_ref(v, pg, k);
+    if (!r || !kn->label[0]) return;
+    *r = (int16_t)clamp(value, kn->lo, kn->hi);
+    build_voice(v);
+}

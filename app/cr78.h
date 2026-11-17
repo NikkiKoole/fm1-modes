@@ -74,4 +74,7 @@ void cr78_draw_kit(unsigned v, uint32_t now);
 unsigned cr78_kit_bytes(void);
 void cr78_kit_get(void *out);
 void cr78_kit_set(const void *in);   /* rebuilds every voice */
+/* a voice back to as built; one knob of its pages (page, knob as cr78_voice_pages) set outright */
+void cr78_voice_reset(unsigned v);
+void cr78_voice_set(unsigned v, unsigned page, unsigned k, int value);
 #endif
