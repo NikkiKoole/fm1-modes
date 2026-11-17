@@ -27,6 +27,7 @@ struct mysynth_params {
     volatile int32_t sustain;  /* Q30 */
     volatile int32_t release;  /* Q15 per-block multiplier */
     volatile int32_t level;    /* Q15 output gain */
+    volatile int32_t duck;     /* Q15 taken off the level (the GROOVEBOX's KEYS level); 0 = none */
     int32_t ftab[MYSYNTH_FTAB];/* Q15 SVF frequency coefficient at 2x rate */
 };
 extern struct mysynth_params mysynth_params;
@@ -35,12 +36,25 @@ extern struct mysynth_params mysynth_params;
 enum { MYSYNTH_NOTE_ON = 1, MYSYNTH_NOTE_OFF, MYSYNTH_ALL_OFF };
 int mysynth_event(unsigned type, unsigned note, unsigned velocity, uint32_t inc, uint32_t rec);
 
+/* Audio ISR: a note on or off, from the audio side (the GROOVEBOX's KEYS track). */
+FM1_AUDIO_CODE void mysynth_play(unsigned note, unsigned velocity, unsigned on);
 /* Audio ISR: add one block of voices into bus (mono Q15 per frame). */
 FM1_AUDIO_CODE void mysynth_render(int32_t *bus);
 /* Last MYSYNTH_SCOPE mono samples (Q15) and the next write position. */
 extern int16_t mysynth_scope[MYSYNTH_SCOPE];
 extern volatile uint32_t mysynth_scope_pos;
 unsigned mysynth_voices_active(void);
+
+/* The sound, for other panels (the GROOVEBOX's KEYS track): OSC FILTER AMP pages and the patches. */
+struct px_page;
+void mysynth_ready(void);
+const struct px_page *mysynth_pages(unsigned *count);
+void mysynth_knob_text(unsigned page, unsigned k, char *out);
+void mysynth_turn(unsigned page, unsigned k, int turn);
+unsigned mysynth_patch_count(void);
+unsigned mysynth_patch_index(void);
+const char *mysynth_patch_name(unsigned p);
+void mysynth_patch(unsigned p);
 
 /* Panel mode, called from groove_screen_control like game_control. */
 int mysynth_control(const struct fm1_controls *controls);

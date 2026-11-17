@@ -2,6 +2,7 @@
 /* MY SYNTH audio: 6 voices x (2 PolyBLEP saw/square oscillators -> 2x
  * oversampled Chamberlin state-variable lowpass -> ADSR amp). Integer only. */
 #include "mysynth.h"
+#include "drumvoice.h"   /* dv.note_inc / note_rec */
 
 #define INLINE static inline __attribute__((always_inline))
 #define BARRIER() __asm__ volatile("" ::: "memory")
@@ -66,6 +67,38 @@ INLINE int32_t osc(uint32_t ph, uint32_t inc, uint32_t rec, int32_t wave)
 }
 INLINE int32_t clamp(int32_t v, int32_t lo, int32_t hi) { return v < lo ? lo : v > hi ? hi : v; }
 
+static FM1_AUDIO_CODE void voice_on(unsigned note, unsigned velocity, uint32_t inc, uint32_t rec)
+{
+    /* same note retriggers; else a free voice; else steal the oldest */
+    unsigned pick = MYSYNTH_VOICES;
+    for (unsigned i = 0; i < MYSYNTH_VOICES && pick == MYSYNTH_VOICES; ++i)
+        if (voices[i].stage != OFF && voices[i].note == note) pick = i;
+    for (unsigned i = 0; i < MYSYNTH_VOICES && pick == MYSYNTH_VOICES; ++i)
+        if (voices[i].stage == OFF) pick = i;
+    if (pick == MYSYNTH_VOICES) {
+        pick = 0;
+        for (unsigned i = 1; i < MYSYNTH_VOICES; ++i)
+            if (clock_age - voices[i].age > clock_age - voices[pick].age) pick = i;
+    }
+    struct voice *v = &voices[pick];
+    if (v->stage == OFF) { v->env = v->amp = v->low = v->band = 0; v->ph1 = 0; v->ph2 = 0x40000000U; v->f = -1; }
+    v->note = (uint8_t)note; v->inc = inc; v->rec = rec;
+    v->velocity = (int32_t)velocity * 258; /* 127 -> ~Q15 1.0 */
+    v->stage = ATTACK; v->age = ++clock_age;
+}
+static FM1_AUDIO_CODE void voice_off(unsigned note)
+{
+    for (unsigned i = 0; i < MYSYNTH_VOICES; ++i)
+        if (voices[i].note == note && (voices[i].stage == ATTACK || voices[i].stage == DECAY))
+            voices[i].stage = RELEASE;
+}
+/* the audio side's own way in (the GROOVEBOX's KEYS track): the pitch from the drum engine's tables */
+FM1_AUDIO_CODE void mysynth_play(unsigned note, unsigned velocity, unsigned on)
+{
+    if (note > 127U || !dv.ready) return;
+    if (on) voice_on(note, velocity, dv.note_inc[note], dv.note_rec[note]);
+    else voice_off(note);
+}
 static FM1_AUDIO_CODE void handle_events(void)
 {
     while (queue_tail != queue_head) {
@@ -75,28 +108,8 @@ static FM1_AUDIO_CODE void handle_events(void)
         if (type == MYSYNTH_ALL_OFF) {
             for (unsigned i = 0; i < MYSYNTH_VOICES; ++i)
                 if (voices[i].stage != OFF) voices[i].stage = RELEASE;
-        } else if (type == MYSYNTH_NOTE_OFF) {
-            for (unsigned i = 0; i < MYSYNTH_VOICES; ++i)
-                if (voices[i].note == note && (voices[i].stage == ATTACK || voices[i].stage == DECAY))
-                    voices[i].stage = RELEASE;
-        } else if (type == MYSYNTH_NOTE_ON) {
-            /* same note retriggers; else a free voice; else steal the oldest */
-            unsigned pick = MYSYNTH_VOICES;
-            for (unsigned i = 0; i < MYSYNTH_VOICES && pick == MYSYNTH_VOICES; ++i)
-                if (voices[i].stage != OFF && voices[i].note == note) pick = i;
-            for (unsigned i = 0; i < MYSYNTH_VOICES && pick == MYSYNTH_VOICES; ++i)
-                if (voices[i].stage == OFF) pick = i;
-            if (pick == MYSYNTH_VOICES) {
-                pick = 0;
-                for (unsigned i = 1; i < MYSYNTH_VOICES; ++i)
-                    if (clock_age - voices[i].age > clock_age - voices[pick].age) pick = i;
-            }
-            struct voice *v = &voices[pick];
-            if (v->stage == OFF) { v->env = v->amp = v->low = v->band = 0; v->ph1 = 0; v->ph2 = 0x40000000U; v->f = -1; }
-            v->note = (uint8_t)note; v->inc = queue[tail].inc; v->rec = queue[tail].rec;
-            v->velocity = (int32_t)queue[tail].velocity * 258; /* 127 -> ~Q15 1.0 */
-            v->stage = ATTACK; v->age = ++clock_age;
-        }
+        } else if (type == MYSYNTH_NOTE_OFF) voice_off(note);
+        else if (type == MYSYNTH_NOTE_ON) voice_on(note, queue[tail].velocity, queue[tail].inc, queue[tail].rec);
         BARRIER();
         queue_tail = (tail + 1U) % QUEUE;
     }
@@ -158,7 +171,7 @@ FM1_AUDIO_CODE void mysynth_render(int32_t *output)
         v->amp = amp_to; v->f = f_to;
     }
     if (!any) return;
-    const int32_t level = p->level;
+    const int32_t level = p->level - (int32_t)(((int64_t)p->level * p->duck) >> 15);   /* duck: a track level from outside */
     uint32_t pos = mysynth_scope_pos;
     for (unsigned i = 0; i < FM1_BLOCK_FRAMES; ++i) {
         /* gain, then a cubic soft clip: y = x - 4/27 x^3, flat beyond 1.5 */

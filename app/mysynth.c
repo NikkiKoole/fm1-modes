@@ -236,3 +236,24 @@ int mysynth_control(const struct fm1_controls *c)
     }
     return 1;
 }
+
+/* ---- the sound, for other panels (the GROOVEBOX's KEYS track) ---- */
+void mysynth_ready(void)
+{
+    if (!initialized) { memcpy(value, patches[0].value, sizeof value); build_ftab(); initialized = 1; }
+    apply();
+}
+const struct px_page *mysynth_pages(unsigned *count) { *count = PAGES; return pages; }
+void mysynth_knob_text(unsigned pg, unsigned k, char *out) { param_text(page_param[pg % PAGES][k & 3U], out); }
+void mysynth_turn(unsigned pg, unsigned k, int turn)
+{
+    unsigned param = page_param[pg % PAGES][k & 3U];
+    if (!turn || param >= PARAMS) return;   /* (OCTAVE is the MY SYNTH keyboard's) */
+    int v = (int)value[param] + turn * 2;
+    value[param] = (uint8_t)(v < 0 ? 0 : v > 127 ? 127 : v);
+    apply();
+}
+unsigned mysynth_patch_count(void) { return PATCHES; }
+unsigned mysynth_patch_index(void) { return patch; }
+const char *mysynth_patch_name(unsigned p) { return patches[p % PATCHES].name; }
+void mysynth_patch(unsigned p) { patch = p % PATCHES; memcpy(value, patches[patch].value, sizeof value); apply(); }
