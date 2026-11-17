@@ -30,7 +30,8 @@ static const struct mode modes[PX_MODES] = {
     [PX_MODE_RHYTHM] = {"RHYTHM BOX", "101 FACTORY RHYTHMS", "TR-77 AND SIDE MAN", rhythm_control, rhythm_active},
     [PX_MODE_SYNTH] = {"MY SYNTH", "6 VOICE SUBTRACTIVE", "PLAY IT ON THE KEYS", mysynth_control, mysynth_active},
     [PX_MODE_FX] = {"FX", "SPRING CHORUS DRIVE", "AND A KICK DUCK", fx_control, fx_active},
-    [PX_MODE_GBX] = {"GROOVEBOX", "4 TRACKS ONE WAY", "STAGE 1: DRUMS", gbx_control, gbx_active},
+    [PX_MODE_GBX] = {"GROOVEBOX", "4 TRACKS ONE WAY", "", gbx_control, gbx_active},
+    [PX_MODE_MINI] = {"GROOVE MINI", "KICK SNARE HAT BASS", "", gbx_mini_control, gbx_mini_active},
     [PX_MODE_GAME] = {"STARFALL", "CATCH STARS", "WITH THE KEYS", game_control, game_active},
 };
 
@@ -45,7 +46,7 @@ static void draw(void)
     px_cls(PX_NIGHT);
     px_print("MODES", 2, 1, PX_GOLD);
     for (unsigned i = 0; i < PX_MODES; ++i) {
-        int y = 9 + (int)i * 6;
+        int y = 8 + (int)i * 6;
         unsigned on = i == selected;
         if (on) px_rect(0, y - 1, PX_W, 6, PX_DUSK);
         px_print(modes[i].name, 6, y, on ? PX_WHITE : PX_SLATE);
@@ -54,8 +55,7 @@ static void draw(void)
             (i == PX_MODE_FX && fx_running()))
             px_rect(2, y + 1, 2, 2, PX_GREEN);
     }
-    px_print(modes[selected].line1, 2, 52, PX_EMBER);
-    px_print(modes[selected].line2, 2, 58, PX_EMBER);
+    px_print(modes[selected].line1, 2, 58, PX_EMBER);   /* (one line: the list fills the screen) */
     px_fine_cls(PX_NIGHT);
     px_fine_rect(0, 1, PX_W * 3, 1, PX_DUSK);
     px_fine_print("K1", 3, 10, PX_WHITE);   px_fine_print("MOVE", 3, 23, PX_SLATE);

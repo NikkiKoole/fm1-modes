@@ -31,7 +31,8 @@ struct cr78_shared {
     /* the performance pads that bend the pattern (CR78_PERF_*), and the roll's settings */
     volatile uint8_t perf, roll_len, roll_fade;   /* roll_len 1/2/4 steps; roll_fade volume steps per repeat */
     volatile uint8_t accent_boost[CR78_VOICES];
-    volatile uint16_t voice_mute;   /* bit v: voice v is muted (the MIX screen's black keys) */   /* volume steps an accent adds, per voice (0..4) */
+    volatile uint16_t voice_mute;   /* bit v: voice v is muted (the MIX screen's black keys) */
+    volatile uint16_t skip[CR78_VOICES];   /* bit s: voice v's hit on step s was just played live: skip it once */
 };
 enum { CR78_PERF_ROLL16 = 1, CR78_PERF_ROLL32 = 2, CR78_PERF_HALF = 4, CR78_PERF_REV = 8 };
 extern struct cr78_shared cr78;
@@ -69,4 +70,8 @@ const char *cr78_preset_name(unsigned p);
 void cr78_preset(unsigned p);
 void cr78_set_ratchet(unsigned v, unsigned s, int r);
 void cr78_draw_kit(unsigned v, uint32_t now);
+/* the kit's sound settings, for saving (GROOVEBOX) */
+unsigned cr78_kit_bytes(void);
+void cr78_kit_get(void *out);
+void cr78_kit_set(const void *in);   /* rebuilds every voice */
 #endif

@@ -74,6 +74,7 @@ static FM1_AUDIO_CODE void schedule_step(unsigned s, unsigned tempo, unsigned fo
     unsigned accent = (cr78.accent >> s) & 1U;
     for (unsigned v = 0; v < CR78_VOICES; ++v) {
         if (!((cr78.grid[v] >> s) & 1U) || ((cr78.voice_mute >> v) & 1U)) continue;
+        if ((cr78.skip[v] >> s) & 1U) { cr78.skip[v] = (uint16_t)(cr78.skip[v] & ~(1U << s)); if (!force_r) continue; }   /* played live just now */
         unsigned r = force_r ? force_r : cr78.ratchet[v][s];
         if (r < 1) r = 1;
         if (r > CR78_RATCHET_MAX) r = CR78_RATCHET_MAX;

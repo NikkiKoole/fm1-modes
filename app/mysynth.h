@@ -67,6 +67,10 @@ void mysynth_lead_knob_text(unsigned page, unsigned k, char *out);
 void mysynth_lead_turn(unsigned page, unsigned k, int turn);
 unsigned mysynth_lead_patch_index(void);
 void mysynth_lead_patch(unsigned p);
+/* both sounds (MY SYNTH's and the LEAD's) as bytes, for saving (GROOVEBOX) */
+enum { MYSYNTH_STATE_BYTES = 24 };
+void mysynth_state_get(uint8_t out[MYSYNTH_STATE_BYTES]);
+void mysynth_state_set(const uint8_t in[MYSYNTH_STATE_BYTES]);
 
 /* Panel mode, called from groove_screen_control like game_control. */
 int mysynth_control(const struct fm1_controls *controls);

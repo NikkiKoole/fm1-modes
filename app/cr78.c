@@ -702,3 +702,13 @@ void cr78_draw_kit(unsigned v, uint32_t now)
     draw_grid(now);
     selected = keep;
 }
+
+/* ---- the kit's sound settings, for saving (GROOVEBOX) ---- */
+unsigned cr78_kit_bytes(void) { return sizeof shape + sizeof cut; }
+void cr78_kit_get(void *out) { memcpy(out, shape, sizeof shape); memcpy((uint8_t *)out + sizeof shape, cut, sizeof cut); }
+void cr78_kit_set(const void *in)
+{
+    if (!initialized) init();
+    memcpy(shape, in, sizeof shape); memcpy(cut, (const uint8_t *)in + sizeof shape, sizeof cut);
+    for (unsigned v = 0; v < NV; ++v) build_voice(v);
+}

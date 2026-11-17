@@ -91,7 +91,7 @@ static int conflict(void)
     if (fm1_flash_size()<GROOVE_FLASH_BYTES) return FM1_FLASH_UNAVAILABLE;
     int r=fm1_flash_read(GROOVE_SAMPLE_OFFSET,header,sizeof header);
     if (r) return r;
-    return header[0]==0x53314d46U && header[2]>GROOVE_SAMPLE_LIMIT ? GROOVE_PROJECT_TUNING_SPACE : 0;
+    return header[0]==0x53314d46U && header[2]>GROOVE_LIBRARY_LIMIT ? GROOVE_PROJECT_TUNING_SPACE : 0;
 }
 void groove_fm_library_init(void)
 {

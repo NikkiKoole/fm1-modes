@@ -303,3 +303,20 @@ void mysynth_lead_turn(unsigned pg, unsigned k, int turn)
 }
 unsigned mysynth_lead_patch_index(void) { return lead_patch; }
 void mysynth_lead_patch(unsigned p) { lead_patch = p % PATCHES; memcpy(lead_value, patches[lead_patch].value, sizeof lead_value); lead_apply(); }
+
+/* ---- both sounds as bytes, for saving: values, patch; the LEAD's values, patch, glide ---- */
+_Static_assert(2 * PARAMS + 3 <= MYSYNTH_STATE_BYTES, "the state fits");
+void mysynth_state_get(uint8_t out[MYSYNTH_STATE_BYTES])
+{
+    mysynth_lead_ready();
+    memset(out, 0, MYSYNTH_STATE_BYTES);
+    memcpy(out, value, PARAMS); out[PARAMS] = (uint8_t)patch;
+    memcpy(out + PARAMS + 1, lead_value, PARAMS); out[2 * PARAMS + 1] = (uint8_t)lead_patch; out[2 * PARAMS + 2] = lead_glide;
+}
+void mysynth_state_set(const uint8_t in[MYSYNTH_STATE_BYTES])
+{
+    mysynth_lead_ready();
+    for (unsigned i = 0; i < PARAMS; ++i) { value[i] = in[i] > 127 ? 127 : in[i]; lead_value[i] = in[PARAMS + 1 + i] > 127 ? 127 : in[PARAMS + 1 + i]; }
+    patch = in[PARAMS] % PATCHES; lead_patch = in[2 * PARAMS + 1] % PATCHES; lead_glide = in[2 * PARAMS + 2] > 127 ? 127 : in[2 * PARAMS + 2];
+    apply(); lead_apply();
+}
