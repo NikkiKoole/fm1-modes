@@ -14,7 +14,7 @@
  *   white keys 1-4    the toms' pattern: RUN, GALLOP, TRIBE (again: 3-3-2), SPARSE
  *   white keys 5-8    the hats' pattern: 16THS, OFFBEAT, GALLOP, BUSY
  *   white keys 9-12   the clap's pattern: BACKBEAT, OFFBEAT, BREAKER, FILL
- *   white keys 13-16  the acid's line: PULSE (again: DOTTED), GALLOP, SQUELCH, MENTAL
+ *   white keys 13-16  the acid's line: PULSE (again: DOTTED), GALLOP (BOUNCE), SQUELCH (SPARSE), DARK (GRIND)
  *                     (a lit pattern key pressed again swaps to its second pattern, where it has one)
  *   (the pages)       KICK (TUNE PUNCH DECAY DRIVE) · ROLL (FEEL: GALLOP ROLL OFFBEAT PUSH
  *                     REVERSE HICCUP 3-3-2 DOTTED; DECAY CUTOFF DRIVE)
@@ -249,12 +249,16 @@ static const struct { const char *name, *steps; } patterns[LANES][VARIANTS] = {
 /* the acid's lines, on the kick's note an octave up: a step is a note ('a' the root .. 'x' 23 semitones
  * up; upper case accented), '-' the last note held on, '.' a rest; '~' under a step slides it into the next */
 static const struct { const char *name, *notes, *slides; } acid_lines[VARIANTS] = {
-    {"PULSE",   "a.Ma.aMaa.Ma.dMa", "..~.....~...~..."},   /* one note and its octave, hypnotic */
-    {"GALLOP",  "..aM..am..aM..kD", "..~...~...~...~."},   /* on the gallop's & and a, between the kicks */
-    {"SQUELCH", "A-m-a~mDa-M-k~hd", "....~~.~...~.~.~"},   /* held notes sliding up and down */
-    {"MENTAL",  "aBaMabNaaBaMakbM", "...~...~...~..~."},   /* every sixteenth, the flat second grinding */
-    {"DOTTED",  "a-.M-.a-.k-.a-.m", "................"},   /* (PULSE's second) a note every dotted 8th: 3 against 4 */
-    {0, 0, 0}, {0, 0, 0}, {0, 0, 0},
+    /* sparse on purpose (3-7 notes a bar): the root, its octave, one colour note; the rhythm and the
+     * accents and slides do the work. Each key's second line on a second press. */
+    {"PULSE",   "..a...a...a...A.", "................"},   /* four offbeat roots, the last barking */
+    {"GALLOP",  "..aM......aM....", "..~.......~....."},   /* root sliding to the octave on the gallop, twice */
+    {"SQUELCH", "A-----m-a-------", ".....~.~........"},   /* three held notes: root, slid to the octave, slid back */
+    {"DARK",    "ab.A....ab.A..m.", "~.......~......."},   /* the root grinding into the flat 2nd (phrygian) */
+    {"DOTTED",  "a-.M-.a-.k-.a-.m", "................"},   /* a note every dotted 8th: 3 against 4 */
+    {"BOUNCE",  "a..m..a..m..a.M.", "................"},   /* root and octave every third sixteenth */
+    {"SPARSE",  "a.......m-a.....", ".........~......"},   /* one root, an octave pickup sliding down into the next */
+    {"GRIND",   "A-b-a...A-b-m...", ".~.~.....~.~...."},   /* held notes sliding root, flat 2nd, root / octave */
 };
 static const char *const pad_name[PX_PADS] = {"RM", "RL", "TM", "HT", "CP", "AC", "GR", "PC", "", "", ""};   /* (the strip: two letters) */
 static const char *const note_name[12] = {"C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"};
