@@ -43,8 +43,10 @@
  *   - GRENADIER's CMOS drift: each pulse nudges the filters a little at random (the cart's RND)
  *   - fuller CLAPS: they sound thin next to the references; more noise body, a bit of room
  *   - MORE THAN 16 PATTERNS: the white keys are full (4 lanes x 4) and "press again" only gives
- *     each key a second. Needs a real answer for every instrument (see the notes in chat:
- *     a pattern bank page, a hold-to-pick, or the lane's own page choosing the pattern)
+ *     each key a second. Leaning to: HOLD a layer's black key and the 16 white keys pick ITS
+ *     pattern (16 per instrument, all seven layers; "hold = scope" as in GROOVEBOX-MANUAL.md).
+ *     Unheld, the white keys come free (for DROP/BUILD, mutes, fills). Keep "press again" too.
+ *     (Also weighed: a PATTERNS page of knobs, one per lane; banks flipped by a button.)
  *   - SHOW WHAT EACH EFFECT IS ON: the screen doesn't say it. SWEEP is the acid's, MOVE
  *     grenadier's, FLANGE the hats', PHASER the percussion's (toms, hats, clap), VOWEL the whole
  *     mix (the kick's sub kept out), and the FX mode's rack only what its CR78 SEND gives it.
