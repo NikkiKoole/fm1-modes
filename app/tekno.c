@@ -104,7 +104,11 @@
  *     bars (intro 16, groove 32, break 8, drop 32) for hands-off songs
  *   - KITS for the sub-genres: other kick models and tempo ranges (tribe 160-175, mental / acidcore
  *     180-200, a slower hard groove 140)
- *   - DROP / BUILD: hold a key to cut the kick and let the rest ride; a roll doubling up
+ *   - DROP / BUILD: in the references the builds TAKE AWAY (Floatdemonium's drums fade to near silence
+ *     before its drop; Instant Coffee runs its steady 8ths straight through): no clap or snare rolls. So
+ *     a roll (clap / snare, ratcheting 8 > 16 > 32, maybe rising in pitch) is an option inside BUILD,
+ *     not the core; clap PITCH / RATCHET as a groove feature: considered, not for now (19 Nov 2026).
+ *     The idea: hold a key to cut the kick and let the rest ride; a roll doubling up
  *     (8 > 16 > 32 a bar) with the filter rising; let go to slam back in on the bar
  *   - DJ FILTER over the whole mix: one knob, low pass to the left, high pass to the right
  *     (drain the kick out over 8 or 16 bars for a build)
