@@ -422,10 +422,10 @@ static void start_if_stopped(void)
 unsigned tekno_active(void) { return active; }
 static unsigned group_of(unsigned pg) { unsigned g = 0; while (g + 1U < GROUPS && pg >= group_first[g + 1]) ++g; return g; }
 static unsigned group_size(unsigned g) { return (unsigned)(group_first[g + 1] - group_first[g]); }
-static void page_title(unsigned pg, char *out)   /* "DEVIL 2/4" (just the name when a group has one page) */
+static void page_title(unsigned pg, char *out)   /* the instrument and where in it: "ACID 2/4" (just "TOMS" for one page) */
 {
     unsigned g = group_of(pg), n = group_size(g);
-    strcpy(out, pages[pg].name);
+    strcpy(out, pages[group_first[g]].name);
     if (n > 1) { strcat(out, " "); px_number((int)(pg - group_first[g]) + 1, out + strlen(out)); strcat(out, "/"); px_number((int)n, out + strlen(out)); }
 }
 
@@ -673,7 +673,8 @@ int tekno_control(const struct fm1_controls *c)
         group_at[g] = (uint8_t)(((int)group_at[g] + c->encoders[1] + 4 * (int)n) % (int)n);
         page = group_first[g] + group_at[g];
         static char text[16];
-        page_title(page, text);
+        if (strcmp(pages[page].name, pages[group_first[g]].name)) strcpy(text, pages[page].name);   /* its own name: DEVIL */
+        else page_title(page, text);                                                                  /* or KICK 2/2 */
         px_flash(text, now, 500U);
         changed = 1;
     }
