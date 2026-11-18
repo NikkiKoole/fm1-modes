@@ -16,7 +16,7 @@
  *   (the pages)       KICK (TUNE PUNCH DECAY DRIVE) · ROLL (FEEL: GALLOP ROLL OFFBEAT PUSH
  *                     REVERSE HICCUP 3-3-2 DOTTED; DECAY CUTOFF DRIVE)
  *                     · TOMS (TUNE GAP DECAY LEVEL) · HATS (TONE CLOSED OPEN LEVEL)
- *                     · CLAP (TUNE SPREAD DECAY LEVEL) · ACID (CUTOFF RESO ENV DECAY)
+ *                     · CLAP (TUNE SPREAD DECAY LEVEL; BODY ROOM DRIVE VARY) · ACID (CUTOFF RESO ENV DECAY)
  *                     · DEVIL (ACCENT ACCENT-DECAY SLIDE DRIVE) · GNARL (FILTER-FM SUB TRACK LEVEL)
  *                     · SWEEP (the acid's cutoff ridden on the bars: DEPTH BARS SHAPE RESO)
  *                     · GREN (BASE SPACE Q MORPH) · MOVE (its sweep DEPTH and RATE, GATE, LEVEL)
@@ -105,7 +105,7 @@
 #include "cr78.h"
 #include <string.h>
 
-enum { PAGES = 17, PATTERNS = 4, FEELS = 8, LAYERS = 7, LANES = TEKNO_LANES };
+enum { PAGES = 18, PATTERNS = 4, FEELS = 8, LAYERS = 7, LANES = TEKNO_LANES };
 static const struct px_page pages[PAGES] = {
     {"KICK", {"TUNE", "PNCH", "DCAY", "DRV"}},
     {"KICK", {"TONE", "CLK", "LVL", "FINE"}},
@@ -113,6 +113,7 @@ static const struct px_page pages[PAGES] = {
     {"TOMS", {"TUNE", "GAP", "DCAY", "LVL"}},
     {"HATS", {"TONE", "CLSD", "OPEN", "LVL"}},
     {"CLAP", {"TUNE", "SPRD", "DCAY", "LVL"}},
+    {"CLAP", {"BODY", "ROOM", "DRV", "VARY"}},
     {"ACID", {"CUT", "RES", "ENV", "DCAY"}},
     {"DEVIL", {"ACC", "ADEC", "SLID", "DRV"}},
     {"GNARL", {"FFM", "SUB", "TRK", "LVL"}},
@@ -126,19 +127,19 @@ static const struct px_page pages[PAGES] = {
     {"MIX", {"CLAP", "ACID", "GREN", "TMPO"}},
 };
 /* knob values, a page a row (see apply()); MIX 1 / MIX 2 are the levels, each also on its layer's own page */
-enum { P_KICK, P_KICK2, P_ROLL, P_TOMS, P_HATS, P_CLAP, P_ACID, P_DEVIL, P_GNARL, P_SWEEP, P_GREN, P_MOVE, P_PHASER, P_FLANGE,
+enum { P_KICK, P_KICK2, P_ROLL, P_TOMS, P_HATS, P_CLAP, P_CLAP2, P_ACID, P_DEVIL, P_GNARL, P_SWEEP, P_GREN, P_MOVE, P_PHASER, P_FLANGE,
        P_VOWEL, P_MIX1, P_MIX2 };
-static int16_t knob[PAGES][4] = {{33, 60, 15, 26}, {62, 30, 62, 0}, {0, 40, 45, 40}, {56, 2, 45, 45}, {50, 30, 50, 50}, {40, 40, 40, 50},
+static int16_t knob[PAGES][4] = {{33, 60, 15, 26}, {62, 30, 62, 0}, {0, 40, 45, 40}, {56, 2, 45, 45}, {50, 30, 50, 50}, {40, 40, 40, 50}, {60, 50, 0, 30},
                                  {40, 75, 70, 30}, {80, 20, 30, 55}, {25, 0, 0, 60}, {0, 2, 0, 30},
                                  {45, 45, 55, 55}, {50, 5, 3, 60},
                                  {80, 2, 50, 50}, {70, 3, 60, 0}, {50, 60, 3, 0},
                                  {62, 62, 45, 50}, {50, 60, 60, 0}};
-static const int16_t lo[PAGES][4] = {{28, 0, 0, 0}, {0, 0, 0, -50}, {0, 0, 0, 0}, {48, 1, 0, 0}, {0, 0, 0, 0}, {0, 0, 0, 0},
+static const int16_t lo[PAGES][4] = {{28, 0, 0, 0}, {0, 0, 0, -50}, {0, 0, 0, 0}, {0, 0, 0, 0}, {48, 1, 0, 0}, {0, 0, 0, 0}, {0, 0, 0, 0},
                                      {0, 0, 0, 0}, {0, 0, 0, 0}, {0, 0, 0, 0}, {0, 0, 0, 0}, {0, 0, 0, 0}, {0, 0, 0, 0},
                                      {0, 0, 0, 0}, {0, 0, 0, 0}, {0, 0, 0, 0}, {0, 0, 0, 0}, {0, 0, 0, 0}};
 static const int16_t hi[PAGES][4] = {{39, 100, 100, 100}, {100, 100, 100, 50}, {FEELS - 1, 100, 100, 100}, {72, 12, 100, 100},
                                      {100, 100, 100, 100}, {100, 100, 100, 100}, {100, 100, 100, 100}, {100, 100, 100, 100},
-                                     {100, 100, 100, 100}, {100, 3, 2, 100}, {100, 100, 100, 100}, {100, 6, 4, 100},
+                                     {100, 100, 100, 100}, {100, 100, 100, 100}, {100, 3, 2, 100}, {100, 100, 100, 100}, {100, 6, 4, 100},
                                      {100, 3, 95, 100}, {100, 3, 95, 100}, {100, 100, 5, 100}, {100, 100, 100, 100}, {100, 100, 100, 0}};
 /* the levels live in two places (their layer's page and MIX 1 / 2): turning one moves the other */
 static const uint8_t level_alias[][4] = {   /* page, knob  <->  page, knob */
@@ -152,7 +153,7 @@ static const uint8_t group_first[GROUPS + 1] = {P_KICK, P_ROLL, P_TOMS, P_HATS, 
 static uint8_t group_at[GROUPS];
 /* which layers (pad bit l = black key l + 1) each page is about: their boxes are marked at the bottom */
 static const uint8_t page_layers[PAGES] = {
-    0x03, 0x03, 0x02, 0x04, 0x08, 0x10, 0x20, 0x20, 0x20, 0x20, 0x40, 0x40,   /* KICK (RUMBLE and ROLL's) .. MOVE */
+    0x03, 0x03, 0x02, 0x04, 0x08, 0x10, 0x10, 0x20, 0x20, 0x20, 0x20, 0x40, 0x40,   /* KICK (RUMBLE and ROLL's) .. MOVE */
     0x1C, 0x08, 0x7F, 0x7F, 0x7F};                                              /* PHASER (toms hats clap), FLANGE (hats), VOWEL, MIX */
 /* ROLL's feels: which sixteenths of the bar get a bass note (bit s: step s; the kick has the beats).
  * The first ones repeat every beat; 3-3-2 and DOTTED cross it (groups of three against the kick) */
@@ -359,11 +360,30 @@ static void apply(void)
     {
         float hz = 600.0f * exp2f_((float)k[0] * 0.025f), x = 3.1415927f * hz / 44100.0f;    /* 600 Hz .. 3.4 kHz */
         t->clap_f = (int32_t)(2.0f * (x - x * x * x / 6.0f) * 32768.0f);
-        t->clap_damp = (int32_t)(0.7f * 32768.0f);
+        t->clap_damp = (int32_t)(1.3f * 32768.0f);                                         /* a wide band */
+        hz *= 1.2f; x = 3.1415927f * (hz > 12000.0f ? 12000.0f : hz) / 44100.0f;               /* the room: a bit higher, wider */
+        t->clap_room_f = (int32_t)(2.0f * (x - x * x * x / 6.0f) * 32768.0f);
+        t->clap_room_damp = (int32_t)(1.6f * 32768.0f);
     }
     t->clap_gap = (uint32_t)((4.0f + 0.12f * (float)k[1]) * 44.1f);                       /* 4..16 ms */
-    t->clap_tail_k = per_sample(15.0f + 1.5f * (float)k[2]);                              /* 15..165 ms */
-    t->clap_level = k[3] * 320;
+    t->clap_burst_k = per_sample(4.0f);
+    t->clap_air = 14000;
+    t->clap_tail_k = per_sample(30.0f + 3.0f * (float)k[2]);                              /* the room: 30..330 ms */
+    t->clap_level = k[3] * 350;
+    k = knob[P_CLAP2];
+    {
+        float x = 3.1415927f * 220.0f / 44100.0f;                                          /* BODY: a wide band at 220 Hz */
+        t->clap_body_f = (int32_t)(2.0f * (x - x * x * x / 6.0f) * 32768.0f);
+        t->clap_body_damp = (int32_t)(1.4f * 32768.0f);
+    }
+    t->clap_body = k[0] * 700;
+    t->clap_room = k[1] * 327;
+    if (k[2]) {
+        float g = 1.0f + (float)k[2] * 0.06f;
+        t->clap_drive_norm = (int32_t)(32768.0f / tanhf_(g));
+        t->clap_drive = (int32_t)(g * 4096.0f / 4.0f);   /* (the clap's sum runs ~4x full scale) */
+    } else t->clap_drive = 0;
+    t->clap_vary = k[3] * 327;
     k = knob[P_PHASER];
     t->ph_depth = k[0] * 327;
     t->ph_bars_shift = (uint8_t)k[1];

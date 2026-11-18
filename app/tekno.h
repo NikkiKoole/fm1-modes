@@ -70,8 +70,13 @@ struct tekno_params {
     /* HATS: noise through a high pass, closed or open */
     volatile int32_t hat_f, hat_damp, hat_closed_k, hat_open_k, hat_level;   /* SVF Q15; Q30 a sample; Q15 */
     /* CLAP: noise through a band pass, three quick bursts and a tail */
-    volatile int32_t clap_f, clap_damp, clap_tail_k, clap_level;   /* SVF Q15; Q30 a sample; Q15 */
+    /* CLAP, 909-style: four bursts of noise (a wide band and the air above it, a low BODY band under
+     * them), each decaying in a few ms, `gap` apart, and a separate ROOM tail with its own band */
+    volatile int32_t clap_f, clap_damp, clap_burst_k, clap_air, clap_level;   /* SVF Q15; Q30 a sample; Q15; Q15 */
     volatile uint32_t clap_gap;              /* samples between the bursts */
+    volatile int32_t clap_body, clap_body_f, clap_body_damp;                 /* Q15 */
+    volatile int32_t clap_room, clap_room_f, clap_room_damp, clap_tail_k;    /* Q15; SVF; Q30 a sample */
+    volatile int32_t clap_drive, clap_drive_norm, clap_vary;                 /* Q12 gain (0 off), Q15 1/tanh; Q15 */
     /* PHASER on the percussion: one sweep every 16 << bars_shift steps */
     volatile int32_t ph_depth, ph_feedback, ph_mix;   /* Q15 */
     volatile uint8_t ph_bars_shift;          /* 0 one bar, 1 two, 2 four, 3 eight */

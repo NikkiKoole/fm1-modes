@@ -122,19 +122,37 @@ static FM1_AUDIO_CODE void bass_hit(int32_t level)
 }
 /* HATS and CLAP: noise through a state-variable filter */
 struct noise_voice { int32_t env, peak, k, low, band; uint32_t t; uint8_t on; };
-static struct noise_voice hat, clap;
+static struct noise_voice hat;
+INLINE uint32_t noise(void) { rng ^= rng << 13; rng ^= rng >> 17; rng ^= rng << 5; return rng; }
+/* the CLAP: four bursts at `at` (their gaps jittered by VARY), the room tail from the hit */
+static struct {
+    uint32_t t, at[4];
+    unsigned n;                      /* bursts fired */
+    int32_t peak, benv, renv, f;     /* Q30; Q30; Q30; this hit's band (VARY) */
+    int32_t low, band, blow, bband, rlow, rband;   /* the main, body and room bands */
+    uint8_t on;
+} clap;
 enum { BURST_K = 1060300064 /* ~1.8 ms */ };
 static FM1_AUDIO_CODE void hat_hit(unsigned code)
 {
     hat.k = (code & 3U) == 2U ? tekno.hat_open_k : tekno.hat_closed_k;   /* a closed hat chokes an open one */
     hat.env = (code & 4U) ? ONE30 : ONE30 / 10 * 6; hat.on = 1;
 }
+INLINE int32_t jitter(void) { return (int32_t)(noise() >> 16) - 32768; }   /* Q15, -1..1 */
 static FM1_AUDIO_CODE void clap_hit(unsigned code)
 {
-    clap.peak = (code & 4U) ? ONE30 : ONE30 / 10 * 7;
-    clap.env = clap.peak; clap.t = 0; clap.on = 1;
+    int32_t vary = tekno.clap_vary, gap = (int32_t)tekno.clap_gap;
+    clap.at[0] = 0;
+    for (unsigned i = 1; i < 4; ++i) {   /* the gaps, each up to +-40 % off with VARY full */
+        int32_t g = gap + mul15(mul15(gap, jitter()), mul15(vary, 13107));
+        clap.at[i] = clap.at[i - 1] + (uint32_t)(g < 8 ? 8 : g);
+    }
+    int32_t peak = (code & 4U) ? ONE30 : ONE30 / 10 * 7;
+    clap.peak = peak + (int32_t)(((int64_t)peak * mul15(jitter(), mul15(vary, 4915))) >> 15);   /* +-15 % */
+    clap.f = tekno.clap_f + mul15(tekno.clap_f, mul15(jitter(), mul15(vary, 3277)));          /* +-10 % */
+    clap.renv = mul15(clap.peak >> 15, tekno.clap_room) << 15;
+    clap.t = 0; clap.n = 0; clap.benv = 0; clap.on = 1;
 }
-INLINE uint32_t noise(void) { rng ^= rng << 13; rng ^= rng >> 17; rng ^= rng << 5; return rng; }
 INLINE int32_t svf(struct noise_voice *v, int32_t x, int32_t f, int32_t damp, unsigned band)
 {
     v->low = clamp(v->low + mul15(f, v->band), -131072, 131072);
@@ -212,8 +230,9 @@ FM1_AUDIO_CODE void tekno_render(int32_t *bus)
     const int32_t bk = tekno.roll_decay_k, bf = tekno.roll_f, bdamp = tekno.roll_damp;
     const int32_t bdrive = tekno.roll_drive, bnorm = tekno.roll_drive_norm, blevel = tekno.roll_level;
     const int32_t hf = tekno.hat_f, hdamp = tekno.hat_damp, hlevel = tekno.hat_level;
-    const int32_t cf = tekno.clap_f, cdamp = tekno.clap_damp, ctail = tekno.clap_tail_k, clevel = tekno.clap_level;
-    const uint32_t cgap = tekno.clap_gap;
+    const int32_t cdamp = tekno.clap_damp, ctail = tekno.clap_tail_k, clevel = tekno.clap_level, cburst = tekno.clap_burst_k;
+    const int32_t cair = tekno.clap_air, cbody = tekno.clap_body, cbf = tekno.clap_body_f, cbdamp = tekno.clap_body_damp;
+    const int32_t crf = tekno.clap_room_f, crdamp = tekno.clap_room_damp, cdrive = tekno.clap_drive, cdnorm = tekno.clap_drive_norm;
     const int32_t fdepth = tekno.fl_depth, ffb = tekno.fl_feedback, fmix = tekno.fl_mix;
     const unsigned fshift = 4U - (tekno.fl_shift & 3U), ashift = 4U - (tekno.asw_shift & 3U), ashape = tekno.asw_shape;
     const unsigned gshift = 7U - (tekno.gren_rate > 6U ? 6U : tekno.gren_rate);
@@ -325,13 +344,26 @@ FM1_AUDIO_CODE void tekno_render(int32_t *bus)
         }
         t += h;
         /* CLAP: three bursts `gap` apart, the last one rings on */
-        if (clap.on) {
+        if (clap.on) {   /* CLAP: the bursts (band + air + body) and the room, from one noise */
             uint32_t ct = clap.t++;
-            if (ct == cgap || ct == 2U * cgap) clap.env = clap.peak;
-            clap.env = mul30(clap.env, ct < 2U * cgap ? BURST_K : ctail);
-            if (ct > 2U * cgap && clap.env < (1 << 16)) clap.on = 0;
-            int32_t x = svf(&clap, (int32_t)(noise() >> 16) - 32768, cf, cdamp, 1);
-            t += mul15(mul15(x, clap.env >> 15), clevel);
+            if (clap.n < 4U && ct == clap.at[clap.n]) { clap.benv = clap.peak; ++clap.n; }
+            clap.benv = mul30(clap.benv, cburst);
+            clap.renv = mul30(clap.renv, ctail);
+            if (clap.n == 4U && clap.benv < (1 << 16) && clap.renv < (1 << 16)) clap.on = 0;
+            int32_t x = (int32_t)(noise() >> 16) - 32768;
+            clap.low = clamp(clap.low + mul15(clap.f, clap.band), -131072, 131072);
+            int32_t high = x - clap.low - mul15(cdamp, clap.band);
+            clap.band = clamp(clap.band + mul15(clap.f, high), -131072, 131072);
+            clap.blow = clamp(clap.blow + mul15(cbf, clap.bband), -131072, 131072);
+            int32_t bhigh = x - clap.blow - mul15(cbdamp, clap.bband);
+            clap.bband = clamp(clap.bband + mul15(cbf, bhigh), -131072, 131072);
+            clap.rlow = clamp(clap.rlow + mul15(crf, clap.rband), -131072, 131072);
+            int32_t rhigh = x - clap.rlow - mul15(crdamp, clap.rband);
+            clap.rband = clamp(clap.rband + mul15(crf, rhigh), -131072, 131072);
+            int32_t burst = clap.band + mul15(high, cair) + mul15(clap.bband, cbody);
+            int32_t y = mul15(burst, clap.benv >> 15) + mul15(clap.rband, clap.renv >> 15);
+            if (cdrive) y = mul15(tanh_q15(clamp((int32_t)(((int64_t)y * cdrive) >> 12), -262143, 262143)), cdnorm);
+            t += mul15(y, clevel);
         }
         /* PHASER over the percussion: six allpasses swept once every 16 << bars steps, locked to the bar */
         if (update) {
