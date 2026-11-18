@@ -34,9 +34,13 @@
  * No swing: the references measured dead straight (the bounce is in which sixteenths are hit).
  *
  * TODO (talked about, not built yet):
- *   - THE BUTTON PLAN (TEKNO uses only HOME, PLAY, SELECT, KNOB 1-4 and the keys; the rest is free).
+ *   - THE BUTTON PLAN (TEKNO uses only HOME, PLAY, SELECT, KNOB 1-4 and the keys; the rest is free:
+ *     every button and the ALGO and PRESETS encoders).
  *     After GROOVEBOX-MANUAL.md's grammar (hold = scope, GLO = the verbs, hold FX = pads):
  *       PRESETS encoder   scenes: turn to pick, in on the next bar
+ *       ALGO encoder      KIT: the sub-genre kit (tribe, mental / acidcore, hard groove: the kick's
+ *                         model and the tempo range). Alternative: the generator's style for GEN
+ *                         (gallop-heavy, sparse, rolling, mental)
  *       SAVE (hold)       + a white key: store the scene in that slot
  *       FX (hold)         the black keys become performance pads: DROP, BUILD, DJ filter, echo
  *                         throw, stutter, ... (let go to release)
