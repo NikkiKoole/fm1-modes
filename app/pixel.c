@@ -1,5 +1,6 @@
 /* SPDX-License-Identifier: GPL-3.0-only WITH GPL-3.0-linking-exception */
 #include "pixel.h"
+#include "fine_font.h"
 #include <string.h>
 
 enum { SCALE = 3, BAND = 4 /* canvas rows per blit */ };
@@ -129,34 +130,22 @@ void px_fine_rect(int x, int y, int w, int h, unsigned c)
         for (int i = x < 0 ? 0 : x; i < x + w && i < FINE_W; ++i) fine[j * FINE_W + i] = (uint8_t)c;
 }
 int px_fine_width(const char *s) { int n = (int)strlen(s); return n ? n * PX_FINE_ADV - 1 : 0; }
+/* the fine strip's letters: Terminus 12 (fine_font.h), drawn from a row above `y` so the capitals (its
+ * rows 2..9) sit at y+1 .. y+8 */
 void px_fine_print(const char *s, int x, int y, unsigned c)
 {
     for (; *s; ++s, x += PX_FINE_ADV) {
-        uint16_t g = glyph(*s);
-        for (int row = 0; row < 5; ++row) {
-            unsigned bits = (g >> ((4 - row) * 3)) & 7U;
-            for (int col = 0; col < 3; ++col)
-                if (bits & (4U >> col)) px_fine_rect(x + col * 2, y + row * 2, 2, 2, c);
-        }
+        int ch = *s >= 'a' && *s <= 'z' ? *s - 32 : *s;
+        if (ch < FINE_FONT_FIRST || ch > FINE_FONT_LAST) continue;
+        const uint8_t *g = fine_font[ch - FINE_FONT_FIRST];
+        for (int row = 0; row < FINE_FONT_H; ++row)
+            for (int col = 0; col < FINE_FONT_W; ++col)
+                if (g[row] & (0x20U >> col)) px_fine_rect(x + col, y - 1 + row, 1, 1, c);
     }
     fine_used = 1;
 }
-
-/* narrow: the outer columns 2 px, the middle one 1 (stems stay as bold as the bars) */
-int px_fine_width_narrow(const char *s) { int n = (int)strlen(s); return n ? n * PX_NARROW_ADV - 1 : 0; }
-void px_fine_print_narrow(const char *s, int x, int y, unsigned c)
-{
-    static const uint8_t cx[3] = {0, 2, 3}, cw[3] = {2, 1, 2};
-    for (; *s; ++s, x += PX_NARROW_ADV) {
-        uint16_t g = glyph(*s);
-        for (int row = 0; row < 5; ++row) {
-            unsigned bits = (g >> ((4 - row) * 3)) & 7U;
-            for (int col = 0; col < 3; ++col)
-                if (bits & (4U >> col)) px_fine_rect(x + cx[col], y + row * 2, cw[col], 2, c);
-        }
-    }
-    fine_used = 1;
-}
+int px_fine_width_narrow(const char *s) { return px_fine_width(s); }
+void px_fine_print_narrow(const char *s, int x, int y, unsigned c) { px_fine_print(s, x, y, c); }
 void px_leds_off(void)
 {
     for (unsigned i = 0; i < PX_KEY_LED + PX_KEYS; ++i) fm1_led_set(i, 0);

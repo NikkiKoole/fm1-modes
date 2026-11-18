@@ -50,15 +50,15 @@ void px_chrome_pads_colored(const char *mode, const struct px_page *pages, unsig
                             const uint8_t color[PX_PADS]);
 
 /* ---- the fine strip: the screen's bottom 48 rows at full resolution (240 x 48), in place of
- * canvas rows 64..79, drawn with the same 3x5 font at 2x (7 px a character: 3 letters in 20 px).
+ * canvas rows 64..79, drawn in Terminus 12 (6 px a character, capitals 8 px tall: 3 letters in 17 px).
  * On for any frame that draws into it after px_cls; otherwise the canvas fills the screen. */
-enum { PX_FINE_ROW = 64, PX_FINE_H = 48, PX_FINE_ADV = 7 };
+enum { PX_FINE_ROW = 64, PX_FINE_H = 48, PX_FINE_ADV = 6 };
 void px_fine_cls(unsigned color);
 void px_fine_rect(int x, int y, int w, int h, unsigned color);   /* screen pixels, y from the strip's top */
 void px_fine_print(const char *s, int x, int y, unsigned color);
 int px_fine_width(const char *s);
-/* the same letters narrow (5 px wide, 6 a character: 3 letters in 17 px), for the pad boxes and the knob names */
-enum { PX_NARROW_ADV = 6 };
+/* (the same as px_fine_print now that the strip's font is Terminus 12: kept for its callers) */
+enum { PX_NARROW_ADV = PX_FINE_ADV };
 void px_fine_print_narrow(const char *s, int x, int y, unsigned color);
 int px_fine_width_narrow(const char *s);
 /* a big centred word for `ms` (page names, confirmations), drawn by px_flash_draw */
