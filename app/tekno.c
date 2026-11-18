@@ -1,5 +1,5 @@
 /* SPDX-License-Identifier: GPL-3.0-only WITH GPL-3.0-linking-exception */
-/* TEKNO: 90s free-party tekno, played live (so far: the kicks, toms, hats, clap, the phaser).
+/* TEKNO: 90s free-party tekno, played live: two kicks, toms, hats, clap, an acid 303, a filterbank drone.
  *
  *   black key 1       RUMBLE on / off: the rumble kick on every beat, its long tuned tail the bass
  *   black key 2       ROLL on / off: a short kick on the beat, bass notes rolling between (RUMBLE
@@ -17,9 +17,9 @@
  *                     · CLAP (TUNE SPREAD DECAY LEVEL) · ACID (CUTOFF RESO ENV DECAY)
  *                     · DEVIL (ACCENT ACCENT-DECAY SLIDE DRIVE) · GNARL (FILTER-FM SUB TRACK LEVEL)
  *                     · SWEEP (the acid's cutoff ridden on the bars: DEPTH BARS SHAPE RESO)
- *                     · GREN (BASE SPACE Q MORPH) · MOVE (its sweep DEPTH BARS, GATE, LEVEL)
- *                     · PHASER · FLANGE (on the hats: DEPTH BARS FDBK MIX) · VOWEL (VOWEL MOVE RATE MIX)
- *                     · PHASER (DEPTH BARS FDBK MIX) · MIX (TEMPO LEVEL TONE CLICK)
+ *                     · GREN (BASE SPACE Q MORPH) · MOVE (its sweep DEPTH and RATE, GATE, LEVEL)
+ *                     · PHASER (on the percussion: DEPTH BARS FDBK MIX) · FLANGE (on the hats: DEPTH BARS
+ *                     FDBK MIX) · VOWEL (VOWEL MOVE RATE MIX) · MIX (TEMPO LEVEL TONE CLICK)
  *   PLAY              play / stop (the first layer switched on starts it)
  *   HOME              back (it keeps playing)
  * Layers and patterns change on the next bar (their keys blink until then).
@@ -28,7 +28,20 @@
  * low band holds almost flat for the whole beat, the tail tuned (A1), its 2nd and 3rd harmonics
  * ~22 dB down; the toms a whole tone apart (G#3 / F#3) on every sixteenth; a phaser on the
  * percussion sweeping once every four bars; hats short on every sixteenth (Desert Planet) or short
- * on the beat and long on the & and a (Axe To Grind); claps broken across the bar (Axe Breaker). */
+ * on the beat and long on the & and a (Axe To Grind); claps broken across the bar (Axe Breaker).
+ * No swing: the references measured dead straight (the bounce is in which sixteenths are hit).
+ *
+ * TODO (talked about, not built yet):
+ *   - DROP / BUILD: hold a key to cut the kick and let the rest ride; a roll doubling up
+ *     (8 > 16 > 32 a bar) with the filter rising; let go to slam back in on the bar
+ *   - DJ FILTER over the whole mix: one knob, low pass to the left, high pass to the right
+ *     (drain the kick out over 8 or 16 bars for a build)
+ *   - DUB ECHO: a tempo-synced delay (dotted 8th, quarter) to throw onto a clap, tom or acid note,
+ *     its repeats filtered darker (the FX rack has no delay, only the spring)
+ *   - GRENADIER's CMOS drift: each pulse nudges the filters a little at random (the cart's RND)
+ *   - fuller CLAPS: they sound thin next to the references; more noise body, a bit of room
+ *   - later maybe: a SCREECH (hoover / FM stab on the offbeats), STUTTER (Electribe-style
+ *     beat repeat into a drop), an optional bar-locked CHOP on the ROLL bass (Mandidextrous) */
 #include "tekno.h"
 #include "pixel.h"
 #include "drumvoice.h"
