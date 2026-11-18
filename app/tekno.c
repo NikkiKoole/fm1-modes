@@ -34,6 +34,24 @@
  * No swing: the references measured dead straight (the bounce is in which sixteenths are hit).
  *
  * TODO (talked about, not built yet):
+ *   - THE BUTTON PLAN (TEKNO uses only HOME, PLAY, SELECT, KNOB 1-4 and the keys; the rest is free).
+ *     After GROOVEBOX-MANUAL.md's grammar (hold = scope, GLO = the verbs, hold FX = pads):
+ *       PRESETS encoder   scenes: turn to pick, in on the next bar
+ *       SAVE (hold)       + a white key: store the scene in that slot
+ *       FX (hold)         the black keys become performance pads: DROP, BUILD, DJ filter, echo
+ *                         throw, stutter, ... (let go to release)
+ *       ARP (hold)        stutter / beat repeat of the last 1/4, 1/8, 1/16 (KNOB 1 picks)
+ *       GLO + layer key   the verbs on an instrument: GEN (a new pattern), its sound reset, ...
+ *       OCT- / OCT+       transpose the key live (kick, ROLL, acid, grenadier together)
+ *       SCL               the acid's scale (minor, phrygian, chromatic)
+ *       LFO               jump to the moving effects (SWEEP MOVE PHASER FLANGE VOWEL), each page
+ *                         saying what it is on (answers "show what each effect is on")
+ *       EDIT              jump to the last-touched layer's sound pages
+ *       ENV               jump to levels and decays
+ *       SEQ               a big view of the playing patterns; later step editing of a lane
+ *       REC               record knob moves (a sweep, a filter ride), looped with the bars
+ *     With hold-a-black-key = its 16 patterns on the white keys (below), everything has a home.
+ *     First: FX-hold pads and PRESETS + SAVE scenes (together: a whole set playable)
  *   - SCENES on PRESETS (the biggest win: from one song to a set of songs): a scene is the whole
  *     state (layers, patterns, every knob, tempo), recalled on the next bar. Factory scenes that are
  *     really different tracks (rolling-tom Desert Planet, rumble Axe Grinder, mental acid at 180,
