@@ -19,7 +19,7 @@ enum { N = FM1_BLOCK_FRAMES, ONE30 = 1 << 30, POS_MASK = 127, QUEUE = 4, STAGES 
 
 struct tekno_params tekno;
 volatile uint8_t tekno_layers, tekno_step, tekno_bar;
-volatile uint16_t tekno_lfo, tekno_vlfo, tekno_alfo, tekno_flfo;
+volatile uint16_t tekno_lfo, tekno_vlfo, tekno_alfo, tekno_flfo, tekno_glfo;
 volatile int32_t tekno_vowel_at;
 volatile int32_t tekno_peak;
 
@@ -49,6 +49,13 @@ static uint32_t now, rate_q24, stepq;   /* samples; Q24 steps a sample; Q24 step
 static unsigned pos = POS_MASK;
 static uint8_t lanes[TEKNO_LANES][TEKNO_STEPS];
 static uint16_t acid_steps[TEKNO_STEPS];
+static unsigned gren_playing, gren_droning;
+static FM1_AUDIO_CODE float gren_decay(float samples)   /* e^(-3.2 / samples), from 2^x (as the voices do) */
+{
+    float x = -3.2f * 1.4426950f / samples;   /* small: the series is plenty */
+    float a = x * 0.6931471805599453f;
+    return 1.0f + a * (1.0f + a * (0.5f + a * (1.0f / 6.0f)));
+}
 static uint32_t acid_gate;           /* samples until the acid's gate closes (0: none pending) */
 static unsigned acid_slide_in;       /* the step just played slides into the next */
 
@@ -177,12 +184,25 @@ static FM1_AUDIO_CODE void fire(unsigned p, uint32_t delay)
             acid_gate = acid_slide_in || (next & TEKNO_ACID_TIE) || !rate_q24 ? 0U : (uint32_t)((9ULL << 20) / rate_q24) + 1U;
         } else { tekno_acid_off(); acid_slide_in = 0; acid_gate = 0; }
     } else if (acid_slide_in || acid_gate || tekno_acid_sounding()) { tekno_acid_off(); acid_slide_in = 0; acid_gate = 0; }
+    /* GRENADIER: the drone on the acid's note; the gate pulses decay over the pulse (as the cart's
+     * exp(-3.2) a pulse; a division and an exp, once a step) */
+    if (layers & TEKNO_GREN) {
+        unsigned gate = tekno.gren_gate, q = s & 3U;
+        if (!gren_playing) { tekno_gren_note((int)tekno.acid_root); gren_playing = 1; if (gate == TEKNO_GATE_DRONE) tekno_gren_pulse(1.0f); }
+        unsigned pulse = gate == TEKNO_GATE_16THS || (gate == TEKNO_GATE_8THS && !(s & 1U)) || (gate == TEKNO_GATE_GALLOP && q != 1U);
+        if (gate == TEKNO_GATE_DRONE && !gren_droning) tekno_gren_pulse(1.0f);
+        gren_droning = gate == TEKNO_GATE_DRONE;
+        if (pulse && rate_q24) {
+            float len = (float)(1U << 24) / (float)rate_q24 * (gate == TEKNO_GATE_8THS ? 2.0f : 1.0f);   /* samples in a pulse */
+            tekno_gren_pulse(gren_decay(len));
+        }
+    } else if (gren_playing) { tekno_gren_off(); gren_playing = 0; gren_droning = 0; }
 }
 
 FM1_AUDIO_CODE void tekno_render(int32_t *bus)
 {
     if (!dv.ready || !tekno.ratio[0]) return;
-    unsigned any = queued || tekno_acid_sounding() || kick[0].on || kick[1].on || tom[0].on || tom[1].on || bass.on || hat.on || clap.on;
+    unsigned any = queued || tekno_acid_sounding() || tekno_gren_sounding() || kick[0].on || kick[1].on || tom[0].on || tom[1].on || bass.on || hat.on || clap.on;
     if (any) quiet = 0; else if (quiet < 400U) ++quiet;
     if (quiet >= 400U) { stepq += rate_q24 * N; now += N; return; }   /* ~1 s silent: rest */
     const int32_t dk = tekno.kick_decay_k, pk = tekno.kick_pitch_k, tk = tekno.tom_decay_k, tpk = tekno.tom_pitch_k;
@@ -196,6 +216,7 @@ FM1_AUDIO_CODE void tekno_render(int32_t *bus)
     const uint32_t cgap = tekno.clap_gap;
     const int32_t fdepth = tekno.fl_depth, ffb = tekno.fl_feedback, fmix = tekno.fl_mix;
     const unsigned fshift = 4U - (tekno.fl_shift & 3U), ashift = 4U - (tekno.asw_shift & 3U), ashape = tekno.asw_shape;
+    const unsigned gshift = 4U - (tekno.gren_shift & 3U);
     const unsigned sweeping = tekno.acid.sweep_oct != 0.0f;   /* (DEPTH 0: off, RES too) */
     const int32_t vcenter = tekno.vow_center, vdepth = tekno.vow_depth, vmix = tekno.vow_mix;
     const unsigned vshift = 6U - (tekno.vow_rate > 5U ? 5U : tekno.vow_rate);
@@ -319,6 +340,12 @@ FM1_AUDIO_CODE void tekno_render(int32_t *bus)
             int32_t lfo = -dv.sine[(turns + 0x40000000U) >> (32 - DV_SINE_BITS)];   /* -cos: lowest at the loop's start */
             ph_coeff = 16384 + mul15(mul15(lfo, depth), 15565);
         }
+        if (update) {   /* GRENADIER: ALPHA swept on the bars (-cos: lowest at the loop's start) */
+            uint32_t turns = stepq << gshift;
+            int32_t c = -dv.sine[(turns + 0x40000000U) >> (32 - DV_SINE_BITS)];
+            tekno_glfo = (uint16_t)((c + 32768) >> 0);
+            tekno_gren_move((float)c * (1.0f / 32768.0f));
+        }
         if (update) {   /* SWEEP: where the acid's ride is (0 closed .. 1 open; 0 when it is off) */
             uint32_t turns = stepq << ashift;
             int32_t u = !sweeping ? 0 : ashape == 1 ? (int32_t)(turns >> 17)                     /* rising */
@@ -340,7 +367,7 @@ FM1_AUDIO_CODE void tekno_render(int32_t *bus)
          * passes) put back under, mixed with the dry */
         /* ACID */
         if (acid_gate && !--acid_gate) tekno_acid_off();
-        int32_t all = k + t + tekno_acid_sample();
+        int32_t all = k + t + tekno_acid_sample() + tekno_gren_sample();
         sub += mul15(k - sub, SUB_K);
         if (update) {   /* where on the path, and the bands for it (interpolated between two places) */
             uint32_t turns = stepq << vshift;

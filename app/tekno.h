@@ -4,12 +4,13 @@
  * bass, or a ROLL (a short kick on the beat, bass notes on the sixteenths between), two tuned TOMS
  * rolling on the sixteenths, HATS and a CLAP, a PHASER locked to the bars over all the percussion,
  * a VOWEL filter (tiny acid jam's formant: four vowel bands) swept on the bars over everything, and
- * an ACID line: a 303 (Open303) with the Devil Fish's controls (tekno_acid.c). */
+ * an ACID line: a 303 (Open303) with the Devil Fish's controls (tekno_acid.c), and a GRENADIER drone
+ * (a triple filterbank after the Grendel RA-99, tekno_gren.c). */
 #ifndef FM1_TEKNO_H
 #define FM1_TEKNO_H
 #include "fm1.h"
 
-enum { TEKNO_KICK = 1, TEKNO_TOMS = 2, TEKNO_ROLL = 4, TEKNO_HATS = 8, TEKNO_CLAP = 16, TEKNO_ACID = 32 };   /* layers (KICK is the rumble kick) */
+enum { TEKNO_KICK = 1, TEKNO_TOMS = 2, TEKNO_ROLL = 4, TEKNO_HATS = 8, TEKNO_CLAP = 16, TEKNO_ACID = 32, TEKNO_GREN = 64 };   /* layers (KICK is the rumble kick) */
 enum { TEKNO_LANE_TOMS, TEKNO_LANE_HATS, TEKNO_LANE_CLAP, TEKNO_LANES };   /* the patterned layers */
 enum { TEKNO_STEPS = 16, TEKNO_RATIOS = 48 * 8 + 1 };     /* pitch ratios: 0..48 semitones in eighths */
 enum { TEKNO_VOWELS = 65 };                               /* the vowel path U O A E I in 64 steps */
@@ -30,6 +31,13 @@ struct tekno_acid {
     float pre_a, fb_a, post_a, drive_dc_a, b0max;
     float down0[3], down1[3];                    /* the 2x decimator's two low-pass sections */
 };
+
+/* GRENADIER: worked out by the panel (floats) */
+struct tekno_gren {
+    float base_hz, space, r, morph;              /* the first filter; the ratio up to the next; 1/Q; the trapezoid's steepness */
+    float move_oct, level;                       /* the bars' sweep, octaves each way; output */
+};
+enum { TEKNO_GATE_DRONE, TEKNO_GATE_8THS, TEKNO_GATE_16THS, TEKNO_GATE_GALLOP, TEKNO_GATES };
 
 /* Control writes whole words; audio only reads (except the readback at the end). */
 struct tekno_params {
@@ -80,6 +88,9 @@ struct tekno_params {
     volatile uint8_t acid_dirty;
     volatile uint8_t acid_root;
     struct tekno_acid acid;
+    /* GRENADIER: the gate, one sweep every 16 << shift steps */
+    volatile uint8_t gren_gate, gren_shift;
+    struct tekno_gren gren;
     uint32_t ratio[TEKNO_RATIOS];            /* 2^(i/96), Q16 (control fills it once) */
     int16_t vowel[TEKNO_VOWELS][3][4];       /* per place, the four bands' SVF f, damping, level (Q15) */
 };
@@ -87,7 +98,7 @@ extern struct tekno_params tekno;
 /* readback for the panel (written by audio) */
 extern volatile uint8_t tekno_layers, tekno_step, tekno_bar;   /* playing; the step and bar (of 8) */
 extern volatile uint16_t tekno_lfo, tekno_vlfo;                /* the phaser's and the vowel's position, 0..65535 */
-extern volatile uint16_t tekno_alfo, tekno_flfo;               /* the acid sweep's and the flanger's (0 .. 65535 = closed .. open / short .. long) */
+extern volatile uint16_t tekno_alfo, tekno_flfo, tekno_glfo;               /* the acid sweep's and the flanger's (0 .. 65535 = closed .. open / short .. long) */
 extern volatile int32_t tekno_vowel_at;                        /* where the vowel is now, Q8 */
 extern volatile int32_t tekno_peak;                            /* Q15, since the panel cleared it */
 
@@ -102,6 +113,14 @@ FM1_AUDIO_CODE void tekno_acid_off(void);
 FM1_AUDIO_CODE int32_t tekno_acid_sample(void);
 FM1_AUDIO_CODE void tekno_acid_sweep(float u);   /* where the SWEEP is, 0..1 */
 FM1_AUDIO_CODE unsigned tekno_acid_sounding(void);
+
+/* the GRENADIER voice (tekno_gren.c), audio side */
+FM1_AUDIO_CODE void tekno_gren_note(int note);
+FM1_AUDIO_CODE void tekno_gren_pulse(float decay);
+FM1_AUDIO_CODE void tekno_gren_off(void);
+FM1_AUDIO_CODE void tekno_gren_move(float u);   /* the sweep, -1..1 */
+FM1_AUDIO_CODE unsigned tekno_gren_sounding(void);
+FM1_AUDIO_CODE int32_t tekno_gren_sample(void);
 
 int tekno_control(const struct fm1_controls *controls);
 unsigned tekno_active(void);
