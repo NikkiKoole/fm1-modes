@@ -6,12 +6,16 @@
  *                     and ROLL are one at a time: pressing one swaps them at the next bar)
  *   black key 3       TOMS on / off: two tuned toms rolling on the sixteenths
  *   black key 4, 5    HATS, CLAP on / off
+ *   black key 6       ACID on / off: a 303 line on the kick's note (an octave up)
  *   white keys 1-4    the toms' pattern: RUN, GALLOP, TRIBE, SPARSE
  *   white keys 5-8    the hats' pattern: 16THS, OFFBEAT, GALLOP, BUSY
  *   white keys 9-12   the clap's pattern: BACKBEAT, OFFBEAT, BREAKER, FILL
+ *   white keys 13-16  the acid's line: PULSE, GALLOP, SQUELCH, MENTAL
  *   SELECT            pages: KICK (TUNE PUNCH DECAY DRIVE) · ROLL (FEEL DECAY CUTOFF DRIVE)
  *                     · TOMS (TUNE GAP DECAY LEVEL) · HATS (TONE CLOSED OPEN LEVEL)
- *                     · CLAP (TUNE SPREAD DECAY LEVEL) · VOWEL (VOWEL MOVE RATE MIX)
+ *                     · CLAP (TUNE SPREAD DECAY LEVEL) · ACID (CUTOFF RESO ENV DECAY)
+ *                     · DEVIL (ACCENT ACCENT-DECAY SLIDE DRIVE) · GNARL (FILTER-FM SUB TRACK LEVEL)
+ *                     · VOWEL (VOWEL MOVE RATE MIX)
  *                     · PHASER (DEPTH BARS FDBK MIX) · MIX (TEMPO LEVEL TONE CLICK)
  *   PLAY              play / stop (the first layer switched on starts it)
  *   HOME              back (it keeps playing)
@@ -29,32 +33,38 @@
 #include "cr78.h"
 #include <string.h>
 
-enum { PAGES = 8, PATTERNS = 4, FEELS = 4, LAYERS = 5, LANES = TEKNO_LANES };
+enum { PAGES = 11, PATTERNS = 4, FEELS = 4, LAYERS = 6, LANES = TEKNO_LANES };
 static const struct px_page pages[PAGES] = {
     {"KICK", {"TUNE", "PNCH", "DCAY", "DRV"}},
     {"ROLL", {"FEEL", "DCAY", "CUT", "DRV"}},
     {"TOMS", {"TUNE", "GAP", "DCAY", "LVL"}},
     {"HATS", {"TONE", "CLSD", "OPEN", "LVL"}},
     {"CLAP", {"TUNE", "SPRD", "DCAY", "LVL"}},
+    {"ACID", {"CUT", "RES", "ENV", "DCAY"}},
+    {"DEVIL", {"ACC", "ADEC", "SLID", "DRV"}},
+    {"GNARL", {"FFM", "SUB", "TRK", "LVL"}},
     {"PHASER", {"DPTH", "BARS", "FDBK", "MIX"}},
     {"VOWEL", {"VOWL", "MOVE", "RATE", "MIX"}},
     {"MIX", {"TMPO", "KICK", "TONE", "CLK"}},
 };
 /* knob values: KICK note (MIDI) punch decay drive; ROLL feel(0-3) decay cutoff drive; TOMS note gap decay level;
  * HATS tone closed open level; CLAP tune spread decay level; PHASER depth bars(0-3) fb mix; MIX - level tone click */
-enum { P_KICK, P_ROLL, P_TOMS, P_HATS, P_CLAP, P_PHASER, P_VOWEL, P_MIX };
+enum { P_KICK, P_ROLL, P_TOMS, P_HATS, P_CLAP, P_ACID, P_DEVIL, P_GNARL, P_PHASER, P_VOWEL, P_MIX };
 static int16_t knob[PAGES][4] = {{33, 60, 15, 26}, {0, 40, 45, 40}, {56, 2, 45, 45}, {50, 30, 50, 50}, {40, 40, 40, 50},
+                                 {40, 75, 70, 30}, {80, 20, 30, 55}, {25, 0, 0, 60},
                                  {80, 2, 50, 50}, {50, 60, 3, 0}, {0, 62, 62, 30}};
-static const int16_t lo[PAGES][4] = {{28, 0, 0, 0}, {0, 0, 0, 0}, {48, 1, 0, 0}, {0, 0, 0, 0}, {0, 0, 0, 0}, {0, 0, 0, 0}, {0, 0, 0, 0}, {0, 0, 0, 0}};
+static const int16_t lo[PAGES][4] = {{28, 0, 0, 0}, {0, 0, 0, 0}, {48, 1, 0, 0}, {0, 0, 0, 0}, {0, 0, 0, 0},
+                                     {0, 0, 0, 0}, {0, 0, 0, 0}, {0, 0, 0, 0}, {0, 0, 0, 0}, {0, 0, 0, 0}, {0, 0, 0, 0}};
 static const int16_t hi[PAGES][4] = {{39, 100, 100, 100}, {3, 100, 100, 100}, {72, 12, 100, 100}, {100, 100, 100, 100},
-                                     {100, 100, 100, 100}, {100, 3, 95, 100}, {100, 100, 5, 100}, {0, 100, 100, 100}};
+                                     {100, 100, 100, 100}, {100, 100, 100, 100}, {100, 100, 100, 100}, {100, 100, 100, 100},
+                                     {100, 3, 95, 100}, {100, 100, 5, 100}, {0, 100, 100, 100}};
 /* ROLL's feels: which sixteenths after the kick get a bass note (bit 1 e, 2 &, 3 a) */
 static const struct { const char *name; uint8_t mask; } feels[FEELS] = {
     {"GALLOP", 0x0C}, {"ROLL", 0x0E}, {"OFFBEAT", 0x04}, {"PUSH", 0x08}};
 /* the layers on the black keys, in order */
-static const uint8_t layer_bit[LAYERS] = {TEKNO_KICK, TEKNO_ROLL, TEKNO_TOMS, TEKNO_HATS, TEKNO_CLAP};
-static const char *const layer_name[LAYERS] = {"RUMBLE", "ROLL", "TOMS", "HATS", "CLAP"};
-static const uint8_t layer_color[LAYERS] = {PX_EMBER, PX_GOLD, PX_CYAN, PX_WHITE, PX_PINK};
+static const uint8_t layer_bit[LAYERS] = {TEKNO_KICK, TEKNO_ROLL, TEKNO_TOMS, TEKNO_HATS, TEKNO_CLAP, TEKNO_ACID};
+static const char *const layer_name[LAYERS] = {"RUMBLE", "ROLL", "TOMS", "HATS", "CLAP", "ACID"};
+static const uint8_t layer_color[LAYERS] = {PX_EMBER, PX_GOLD, PX_CYAN, PX_WHITE, PX_PINK, PX_GREEN};
 /* the patterns, a lane each: '.' rest, upper case accented.
  * TOMS h / l high / low; HATS x / o closed / open; CLAP x a clap */
 static const char *const lane_name[LANES] = {"TOMS", "HATS", "CLAP"};
@@ -64,13 +74,21 @@ static const struct { const char *name, *steps; } patterns[LANES][PATTERNS] = {
     {{"16THS", "xxXxxxXxxxXxxxXx"}, {"OFFBEAT", "..O...O...O...O."}, {"GALLOP", "x.Oox.Oox.Oox.Oo"}, {"BUSY", "xxOxxxOxxxOxxxOx"}},
     {{"BACKBEAT", "....X.......X..."}, {"OFFBEAT", "..x...x...x...x."}, {"BREAKER", ".x.x..X..x.x..X."}, {"FILL", "....X.......XxXx"}},
 };
-static const char *const pad_name[PX_PADS] = {"RMB", "RLL", "TOM", "HAT", "CLP", "", "", "", "", "", ""};
+/* the acid's lines, on the kick's note an octave up: a step is a note ('a' the root .. 'x' 23 semitones
+ * up; upper case accented), '-' the last note held on, '.' a rest; '~' under a step slides it into the next */
+static const struct { const char *name, *notes, *slides; } acid_lines[PATTERNS] = {
+    {"PULSE",   "a.Ma.aMaa.Ma.dMa", "..~.....~...~..."},   /* one note and its octave, hypnotic */
+    {"GALLOP",  "..aM..am..aM..kD", "..~...~...~...~."},   /* on the gallop's & and a, between the kicks */
+    {"SQUELCH", "A-m-a~mDa-M-k~hd", "....~~.~...~.~.~"},   /* held notes sliding up and down */
+    {"MENTAL",  "aBaMabNaaBaMakbM", "...~...~...~..~."},   /* every sixteenth, the flat second grinding */
+};
+static const char *const pad_name[PX_PADS] = {"RMB", "RLL", "TOM", "HAT", "CLP", "ACD", "", "", "", "", ""};
 static const char *const note_name[12] = {"C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"};
 static const uint8_t white_keys[16] = {0, 2, 4, 6, 7, 9, 11, 12, 14, 16, 18, 19, 21, 23, 24, 26};
 static const uint8_t black_keys[PX_PADS] = {1, 3, 5, 8, 10, 13, 15, 17, 20, 22, 25};
 
 static unsigned active, opened_once, page, full_redraw, shown_lane;
-static uint8_t pattern[LANES], pattern_playing[LANES];
+static uint8_t pattern[LANES], pattern_playing[LANES], acid_line, acid_line_playing;
 static uint32_t prev_buttons, prev_keys, last_ms, led_state;
 static int clamp(int v, int lo_, int hi_) { return v < lo_ ? lo_ : v > hi_ ? hi_ : v; }
 
@@ -90,6 +108,89 @@ static int32_t q30(float x) { return (int32_t)(x * 1073741824.0f); }
 static int32_t per_sample(float ms) { return q30(expf_(-1.0f / (ms * 44.1f))); }          /* a decay of time constant ms */
 static int32_t per_16(float ms) { return q30(expf_(-16.0f / (ms * 44.1f))); }             /* ... applied every 16 samples */
 static int32_t lowpass(float hz) { return (int32_t)((1.0f - expf_(-6.2831853f * hz / 44100.0f)) * 32768.0f); }
+static float tanf_(float x)   /* (small angles: up to ~0.7) */
+{
+    float q = x * x;
+    float sn = x * (1.0f - q / 6.0f * (1.0f - q / 20.0f * (1.0f - q / 42.0f * (1.0f - q / 72.0f))));
+    float cs = 1.0f - q / 2.0f * (1.0f - q / 12.0f * (1.0f - q / 30.0f * (1.0f - q / 56.0f)));
+    return sn / cs;
+}
+static void svf_set(struct tekno_svf *f, float hz, float q)
+{
+    f->g = tanf_(3.1415927f * hz / 44100.0f);
+    f->r = 1.0f / q;
+    f->h = 1.0f / (1.0f + f->r * f->g + f->g * f->g);
+}
+static float hp_a(float hz, float rate) { return expf_(-6.2831853f * hz / rate); }
+static float decay_of(float seconds) { return expf_(-1.0f / (44100.0f * seconds)); }
+static float log2f_(float x) { float e = 0.0f; while (x >= 2.0f) { x *= 0.5f; e += 1.0f; } while (x < 1.0f) { x *= 2.0f; e -= 1.0f; }
+    float z = (x - 1.0f) / (x + 1.0f), q = z * z; return e + 2.8853901f * z * (1.0f + q * (1.0f / 3.0f + q * (1.0f / 5.0f + q / 7.0f))); }
+static float ladder_b0(float hz) { float f = hz * (0.7071067811865f / 88200.0f); return (0.00045522346f + 6.1922189f * f) / (1.0f + 12.358354f * f + 4.4156345f * f * f); }
+
+/* ACID: the knobs into Open303's terms (the FM-1's bass303.c), the Devil Fish's ranges past them */
+static void apply_acid(void)
+{
+    struct tekno_acid *a = &tekno.acid;
+    const int16_t *k = knob[P_ACID];
+    float u;
+    a->cutoff = 100.0f * exp2f_((float)k[0] * 0.056f);                                   /* 100 Hz .. 4.9 kHz (stock 314 .. 2394) */
+    u = (float)k[1] / 100.0f; a->reso = (1.0f - expf_(-3.0f * u)) / (1.0f - expf_(-3.0f));
+    {
+        float c = log2f_(a->cutoff / 313.815278606f) / 2.93169f, e = 1.3f * (float)k[2] / 100.0f;   /* ENV up to 1.3x the stock top */
+        c = c < 0.0f ? 0.0f : c > 1.0f ? 1.0f : c;
+        a->env_scale = (1.0f - c) * (3.773996325f * e + 0.736965594f) + c * (4.194548788f * e + 0.864344901f);
+        a->env_offset = 0.048292931f * c + 0.294391201f;
+    }
+    a->decay = decay_of(0.03f * exp2f_((float)k[3] * 0.0664386f));                       /* 30 ms .. 3 s (stock 200 .. 2000) */
+    k = knob[P_DEVIL];
+    a->accent = (float)k[0] / 100.0f;
+    a->accent_decay = decay_of(0.03f * exp2f_((float)k[1] * 0.0664386f));                /* its own decay: 30 ms .. 3 s */
+    a->slide = decay_of(0.004f + 0.0008f * (float)k[2]);                                  /* 4 .. 84 ms to get there */
+    if (k[3]) {   /* RAT, as bass303.c */
+        float d = (float)k[3] / 100.0f;
+        a->drive_high = 1.6f - 0.8f * d;
+        svf_set(&a->drive_post, 3300.0f - 1400.0f * d, 0.7071f);
+        a->drive_dc_a = hp_a(3.0f, 44100.0f);
+        a->release = decay_of(0.006f); a->release_acc = decay_of(0.060f);
+        a->drive_gain = 6.0f + d * d * (1500.0f - 800.0f * d);
+    } else { a->drive_gain = 0.0f; a->release = decay_of(0.001f); a->release_acc = decay_of(0.050f); }
+    k = knob[P_GNARL];
+    a->ffm = 2.0f * (float)k[0] / 100.0f;
+    a->sub = (float)k[1] / 100.0f;
+    a->track = (float)k[2] / 100.0f;
+    a->level = 2.0f * (float)k[3] / 100.0f;
+    a->base = tekno.acid_root = (uint8_t)(knob[P_KICK][0] + 12);
+}
+static void init_acid(void)   /* the fixed filters */
+{
+    struct tekno_acid *a = &tekno.acid;
+    svf_set(&a->click, 200.0f, 0.70710678f);
+    svf_set(&a->notch, 7.5164f, 0.2f);
+    svf_set(&a->drive_pre, 720.0f, 0.7071f);
+    a->pre_a = hp_a(44.486f, 88200.0f); a->fb_a = hp_a(150.0f, 88200.0f); a->post_a = hp_a(24.167f, 44100.0f);
+    a->b0max = ladder_b0(20000.0f);
+    static const float q[2] = {0.5411961f, 1.306563f};
+    float *down[2] = {a->down0, a->down1};
+    for (unsigned i = 0; i < 2; ++i) {
+        float g = tanf_(3.1415927f * 9500.0f / 44100.0f), r = 1.0f / q[i], h = 1.0f / (1.0f + r * g + g * g);
+        down[i][0] = g * g * h; down[i][1] = 2.0f * (g * g - 1.0f) * h; down[i][2] = (1.0f - r * g + g * g) * h;
+    }
+}
+static void load_acid(unsigned p)
+{
+    const char *n = acid_lines[p].notes, *sl = acid_lines[p].slides;
+    for (unsigned i = 0; i < TEKNO_STEPS; ++i) {
+        char c = n[i];
+        uint16_t w = 0;
+        if (c >= 'A' && c <= 'X') w = (uint16_t)(TEKNO_ACID_NOTE | TEKNO_ACID_ACCENT | (c - 'A'));
+        else if (c >= 'a' && c <= 'x') w = (uint16_t)(TEKNO_ACID_NOTE | (c - 'a'));
+        else if (c == '-') w = TEKNO_ACID_TIE;
+        if (sl[i] == '~' && w) w |= TEKNO_ACID_SLIDE;
+        tekno.acid_want[i] = w;
+    }
+    tekno.acid_dirty = 1;
+    acid_line = (uint8_t)p;
+}
 
 /* the knobs into the audio side's words */
 static void apply(void)
@@ -160,6 +261,7 @@ static void apply(void)
     t->kick_level = k[1] * 300;
     t->kick_tone = lowpass(120.0f * exp2f_((float)k[2] * 0.06f));                       /* 120 Hz .. 7.7 kHz */
     t->kick_click = k[3] * 200;
+    apply_acid();
 }
 static uint8_t step_code(char c)
 {
@@ -226,6 +328,13 @@ static void value_text(unsigned pg, unsigned i, char *out)
     else if (pg == P_VOWEL && i == 3 && !v) strcpy(out, "OFF");
     else if (pg == P_MIX && i == 0) px_number((int)groove_tempo_current(), out);
     else if (pg == P_KICK && i == 2 && !v) strcpy(out, "FLAT");
+    else if (pg == P_ACID && i == 0) px_number((int)(100.0f * exp2f_((float)v * 0.056f)), out);
+    else if ((pg == P_ACID && i == 3) || (pg == P_DEVIL && i == 1)) {   /* decays in ms */
+        int ms = (int)(30.0f * exp2f_((float)v * 0.0664386f));
+        if (ms >= 1000) { px_number(ms / 1000, out); strcat(out, "."); px_number(ms / 100 % 10, out + strlen(out)); strcat(out, "S"); }
+        else px_number(ms, out);
+    }
+    else if (((pg == P_DEVIL && i == 3) || (pg == P_GNARL && i < 3)) && !v) strcpy(out, "OFF");
     else px_number(v, out);
 }
 static void draw(uint32_t now)
@@ -246,9 +355,9 @@ static void draw(uint32_t now)
     /* the layers, three letters each */
     for (unsigned l = 0; l < LAYERS; ++l) {
         unsigned on = (lit >> l) & 1U;
-        int x = 1 + (int)l * 16;
-        px_rect(x, 9, 15, 7, on ? layer_color[l] : PX_DUSK);
-        px_print(pad_name[l], x + 2, 10, on ? PX_NIGHT : PX_SLATE);
+        int x = 1 + (int)l * 13;
+        px_rect(x, 9, 12, 7, on ? layer_color[l] : PX_DUSK);
+        px_print(pad_name[l], x, 10, on ? PX_NIGHT : PX_SLATE);
     }
     /* the three lanes, a row each (accents tall; toms' low and hats' open hits in their second colour),
      * dark when the layer is off; the playhead below */
@@ -260,25 +369,47 @@ static void draw(uint32_t now)
         for (unsigned s = 0; s < 16; ++s) {
             uint8_t code = step_code(steps[s]);
             if (!(code & 3U)) continue;
-            int x = 2 + (int)s * 5, y = 18 + (int)lane * 6;
+            int x = 2 + (int)s * 5, y = 17 + (int)lane * 5;
             unsigned color = on ? lane_color[lane][(code & 3U) == 2U] : PX_DUSK;
             if (code & 4U) px_rect(x, y, 4, 4, color); else px_rect(x, y + 2, 4, 2, color);
         }
     }
+    {   /* the acid's line: notes higher up the higher they are, slides joined to the next, ties held on */
+        const char *n = acid_lines[acid_line].notes, *sl = acid_lines[acid_line].slides;
+        unsigned on = (tekno.want & TEKNO_ACID) != 0, color = on ? PX_GREEN : PX_DUSK;
+        int last_y = 0;
+        for (unsigned s = 0; s < 16; ++s) {
+            char c = n[s];
+            int x = 2 + (int)s * 5;
+            if (c == '-') { if (last_y) px_rect(x - 1, last_y, 5, 1, color); continue; }
+            if (c == '.') { last_y = 0; continue; }
+            int semis = c >= 'a' ? c - 'a' : c - 'A';
+            int y = 36 - (semis > 15 ? 15 : semis) / 4;   /* rows 32..36 */
+            px_rect(x, y, 4, c < 'a' ? 2 : 1, color);
+            if (sl[s] == '~') px_rect(x + 4, y, 1, 1, color);
+            last_y = y;
+        }
+    }
     for (unsigned s = 0; s < 16; ++s)
-        px_rect(2 + (int)s * 5, 35, 4, 1, cr78_running && s == step ? PX_WHITE : (s & 3U) ? PX_SLATE : PX_GOLD);
+        px_rect(2 + (int)s * 5, 38, 4, 1, cr78_running && s == step ? PX_WHITE : (s & 3U) ? PX_SLATE : PX_GOLD);
     char line[24];
-    strcpy(line, lane_name[shown_lane]); strcat(line, " "); strcat(line, patterns[shown_lane][pattern[shown_lane]].name);
-    if (pattern[shown_lane] != pattern_playing[shown_lane] && blink) line[0] = 0;
-    px_print(line, 2, 38, lane_color[shown_lane][0]);
+    if (shown_lane == LANES) {
+        strcpy(line, "ACID "); strcat(line, acid_lines[acid_line].name);
+        if (acid_line != acid_line_playing && blink) line[0] = 0;
+        px_print(line, 2, 40, PX_GREEN);
+    } else {
+        strcpy(line, lane_name[shown_lane]); strcat(line, " "); strcat(line, patterns[shown_lane][pattern[shown_lane]].name);
+        if (pattern[shown_lane] != pattern_playing[shown_lane] && blink) line[0] = 0;
+        px_print(line, 2, 40, lane_color[shown_lane][0]);
+    }
     if (tekno.vow_mix) {   /* VOWEL on: the vowel it is on now, large-ish, right */
         int at = (int)tekno_vowel_at;
-        px_print_scaled(vowel_name(at * 100 / ((TEKNO_VOWELS - 1) * 256)), 70, 39, 2, PX_PINK);
+        px_print_scaled(vowel_name(at * 100 / ((TEKNO_VOWELS - 1) * 256)), 70, 41, 2, PX_PINK);
     }
     /* the phaser's sweep, and the eight bars */
     int w = (int)((uint32_t)tekno_lfo * 62U >> 16);   /* (short of the vowel's corner) */
-    px_rect(2, 45, 64, 3, PX_DUSK);
-    px_rect(2 + w, 44, 2, 5, PX_PINK);
+    px_rect(2, 47, 64, 2, PX_DUSK);
+    px_rect(2 + w, 46, 2, 4, PX_PINK);
     for (unsigned b = 0; b < 8; ++b) px_rect(2 + (int)b * 5, 52, 4, 3, cr78_running && b == tekno_bar ? PX_WHITE : PX_DUSK);
     strcpy(line, ""); px_number((int)groove_tempo_current(), line); strcat(line, " BPM");
     px_print(line, 46, 51, PX_SLATE);
@@ -296,6 +427,7 @@ static void leds(uint32_t now)
     uint32_t whites = 0;   /* each lane's pattern, the one waiting blinking */
     for (unsigned lane = 0; lane < LANES; ++lane)
         whites |= 1U << (4U * lane + (pattern[lane] != pattern_playing[lane] && blink ? pattern_playing[lane] : pattern[lane]));
+    whites |= 1U << (12U + (acid_line != acid_line_playing && blink ? acid_line_playing : acid_line));
     uint32_t all = whites | (layers << 16);
     for (unsigned s = 0; s < 16; ++s)
         if (((all ^ led_state) >> s) & 1U) fm1_led_set(PX_KEY_LED + white_keys[s], (all >> s) & 1U);
@@ -317,6 +449,7 @@ int tekno_control(const struct fm1_controls *c)
         if (!opened_once) {   /* the first time: the ratios, the sound, a tempo of the scene */
             for (unsigned i = 0; i < TEKNO_RATIOS; ++i) tekno.ratio[i] = (uint32_t)(exp2f_((float)i / 96.0f) * 65536.0f);
             build_vowels();
+            init_acid(); load_acid(0); acid_line_playing = 0;
             for (unsigned lane = 0; lane < LANES; ++lane) { load_pattern(lane, 0); pattern_playing[lane] = 0; }
             groove_tempo_edit(165 - (int)groove_tempo_current());
             opened_once = 1;
@@ -331,6 +464,7 @@ int tekno_control(const struct fm1_controls *c)
     unsigned changed = 0;
     for (unsigned lane = 0; lane < LANES; ++lane)   /* the audio side took the pattern at the bar */
         if (!((tekno.lane_dirty >> lane) & 1U) && pattern_playing[lane] != pattern[lane]) { pattern_playing[lane] = pattern[lane]; changed = 1; }
+    if (!tekno.acid_dirty && acid_line_playing != acid_line) { acid_line_playing = acid_line; changed = 1; }
     /* black keys: the layers */
     for (unsigned i = 0; i < LAYERS; ++i) {
         if (!((down >> black_keys[i]) & 1U)) continue;
@@ -352,6 +486,16 @@ int tekno_control(const struct fm1_controls *c)
         shown_lane = lane;
         static char text[24];
         strcpy(text, lane_name[lane]); strcat(text, " "); strcat(text, patterns[lane][s % PATTERNS].name);
+        px_flash(text, now, 500U);
+        changed = 1;
+    }
+    /* white keys 13-16: the acid's line */
+    for (unsigned p = 0; p < PATTERNS; ++p) {
+        if (!((down >> white_keys[LANES * PATTERNS + p]) & 1U)) continue;
+        load_acid(p);
+        shown_lane = LANES;
+        static char text[24];
+        strcpy(text, "ACID "); strcat(text, acid_lines[p].name);
         px_flash(text, now, 500U);
         changed = 1;
     }

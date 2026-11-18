@@ -3,15 +3,32 @@
  * Its own voices (tekno_dsp.c), on the FM-1's clock: a RUMBLE KICK whose long tuned tail is the
  * bass, or a ROLL (a short kick on the beat, bass notes on the sixteenths between), two tuned TOMS
  * rolling on the sixteenths, HATS and a CLAP, a PHASER locked to the bars over all the percussion,
- * and a VOWEL filter (tiny acid jam's formant: four vowel bands) swept on the bars over everything. */
+ * a VOWEL filter (tiny acid jam's formant: four vowel bands) swept on the bars over everything, and
+ * an ACID line: a 303 (Open303) with the Devil Fish's controls (tekno_acid.c). */
 #ifndef FM1_TEKNO_H
 #define FM1_TEKNO_H
 #include "fm1.h"
 
-enum { TEKNO_KICK = 1, TEKNO_TOMS = 2, TEKNO_ROLL = 4, TEKNO_HATS = 8, TEKNO_CLAP = 16 };   /* layers (KICK is the rumble kick) */
+enum { TEKNO_KICK = 1, TEKNO_TOMS = 2, TEKNO_ROLL = 4, TEKNO_HATS = 8, TEKNO_CLAP = 16, TEKNO_ACID = 32 };   /* layers (KICK is the rumble kick) */
 enum { TEKNO_LANE_TOMS, TEKNO_LANE_HATS, TEKNO_LANE_CLAP, TEKNO_LANES };   /* the patterned layers */
 enum { TEKNO_STEPS = 16, TEKNO_RATIOS = 48 * 8 + 1 };     /* pitch ratios: 0..48 semitones in eighths */
 enum { TEKNO_VOWELS = 65 };                               /* the vowel path U O A E I in 64 steps */
+
+/* the acid's steps: the note (semitones over the base) in the low 6 bits, and these */
+enum { TEKNO_ACID_NOTE = 0x40, TEKNO_ACID_ACCENT = 0x80, TEKNO_ACID_SLIDE = 0x100, TEKNO_ACID_TIE = 0x200 };
+struct tekno_svf { float g, r, h; };          /* a trapezoidal SVF's coefficients */
+/* ACID: everything the 303 needs, worked out by the panel (floats; the audio side only reads) */
+struct tekno_acid {
+    float cutoff, reso, env_scale, env_offset;   /* Hz; Open303's skewed resonance; its envelope mapping */
+    float decay, accent_decay, accent, slide;    /* per-sample multipliers; 0..1; the slide's per-sample pull */
+    float release, release_acc;                  /* the amp's release after the gate (plain, accented) */
+    float ffm, sub, track, level;                /* FILTER FM depth; the sub's level; TRACK 0..1; output */
+    int base;                                    /* the note TRACK is centred on */
+    float drive_gain, drive_high;                /* RAT (gain 0: off) */
+    struct tekno_svf click, notch, drive_pre, drive_post;
+    float pre_a, fb_a, post_a, drive_dc_a, b0max;
+    float down0[3], down1[3];                    /* the 2x decimator's two low-pass sections */
+};
 
 /* Control writes whole words; audio only reads (except the readback at the end). */
 struct tekno_params {
@@ -51,6 +68,11 @@ struct tekno_params {
      * one sweep every 4 << rate steps (0 a beat .. 5 eight bars), the mix (Q15) */
     volatile int32_t vow_center, vow_depth, vow_mix;
     volatile uint8_t vow_rate;
+    /* ACID: its bar of steps (copied in at the next bar, like a lane), the note step 0 is on */
+    volatile uint16_t acid_want[TEKNO_STEPS];
+    volatile uint8_t acid_dirty;
+    volatile uint8_t acid_root;
+    struct tekno_acid acid;
     uint32_t ratio[TEKNO_RATIOS];            /* 2^(i/96), Q16 (control fills it once) */
     int16_t vowel[TEKNO_VOWELS][3][4];       /* per place, the four bands' SVF f, damping, level (Q15) */
 };
@@ -65,6 +87,12 @@ extern volatile int32_t tekno_peak;                            /* Q15, since the
  * block's sound into `bus` (mono Q15, added). */
 FM1_AUDIO_CODE void tekno_clock(unsigned step, unsigned tempo, uint32_t late, unsigned restart);
 FM1_AUDIO_CODE void tekno_render(int32_t *bus);
+
+/* the ACID voice (tekno_acid.c), audio side */
+FM1_AUDIO_CODE void tekno_acid_note(int note, int accent, int slide);
+FM1_AUDIO_CODE void tekno_acid_off(void);
+FM1_AUDIO_CODE int32_t tekno_acid_sample(void);
+FM1_AUDIO_CODE unsigned tekno_acid_sounding(void);
 
 int tekno_control(const struct fm1_controls *controls);
 unsigned tekno_active(void);

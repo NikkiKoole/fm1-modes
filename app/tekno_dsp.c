@@ -48,6 +48,9 @@ static volatile unsigned queued;
 static uint32_t now, rate_q24, stepq;   /* samples; Q24 steps a sample; Q24 steps into the 8-bar loop */
 static unsigned pos = POS_MASK;
 static uint8_t lanes[TEKNO_LANES][TEKNO_STEPS];
+static uint16_t acid_steps[TEKNO_STEPS];
+static uint32_t acid_gate;           /* samples until the acid's gate closes (0: none pending) */
+static unsigned acid_slide_in;       /* the step just played slides into the next */
 
 FM1_AUDIO_CODE void tekno_clock(unsigned step, unsigned tempo, uint32_t late, unsigned restart)
 {
@@ -147,6 +150,7 @@ static FM1_AUDIO_CODE void fire(unsigned p, uint32_t delay)
                 if ((dirty >> l) & 1U) for (unsigned i = 0; i < TEKNO_STEPS; ++i) lanes[l][i] = tekno.lane_want[l][i];
             tekno.lane_dirty = 0;
         }
+        if (tekno.acid_dirty) { for (unsigned i = 0; i < TEKNO_STEPS; ++i) acid_steps[i] = tekno.acid_want[i]; tekno.acid_dirty = 0; }
         tekno_bar = (uint8_t)((p >> 4) & 7U);
     }
     tekno_step = (uint8_t)s;
@@ -158,12 +162,22 @@ static FM1_AUDIO_CODE void fire(unsigned p, uint32_t delay)
     if ((layers & TEKNO_TOMS) && (toms[s] & 3U)) tom_hit((toms[s] & 3U) == 2U, (toms[s] & 4U) != 0);
     if ((layers & TEKNO_HATS) && (lanes[TEKNO_LANE_HATS][s] & 3U)) hat_hit(lanes[TEKNO_LANE_HATS][s]);
     if ((layers & TEKNO_CLAP) && (lanes[TEKNO_LANE_CLAP][s] & 3U)) clap_hit(lanes[TEKNO_LANE_CLAP][s]);
+    /* ACID: a note, a tie (the last note held on), or a rest. The gate closes a little past half the
+     * step, unless the note slides into the next or the next is tied to it (a division, once a step) */
+    if (layers & TEKNO_ACID) {
+        unsigned c = acid_steps[s], next = acid_steps[(s + 1U) & 15U];
+        if (c & TEKNO_ACID_NOTE) tekno_acid_note((int)tekno.acid_root + (int)(c & 63U), (c & TEKNO_ACID_ACCENT) != 0, (int)acid_slide_in);
+        if (c & (TEKNO_ACID_NOTE | TEKNO_ACID_TIE)) {
+            acid_slide_in = (c & TEKNO_ACID_SLIDE) != 0;
+            acid_gate = acid_slide_in || (next & TEKNO_ACID_TIE) || !rate_q24 ? 0U : (uint32_t)((9ULL << 20) / rate_q24) + 1U;
+        } else { tekno_acid_off(); acid_slide_in = 0; acid_gate = 0; }
+    } else if (acid_slide_in || acid_gate || tekno_acid_sounding()) { tekno_acid_off(); acid_slide_in = 0; acid_gate = 0; }
 }
 
 FM1_AUDIO_CODE void tekno_render(int32_t *bus)
 {
     if (!dv.ready || !tekno.ratio[0]) return;
-    unsigned any = queued || kick[0].on || kick[1].on || tom[0].on || tom[1].on || bass.on || hat.on || clap.on;
+    unsigned any = queued || tekno_acid_sounding() || kick[0].on || kick[1].on || tom[0].on || tom[1].on || bass.on || hat.on || clap.on;
     if (any) quiet = 0; else if (quiet < 400U) ++quiet;
     if (quiet >= 400U) { stepq += rate_q24 * N; now += N; return; }   /* ~1 s silent: rest */
     const int32_t dk = tekno.kick_decay_k, pk = tekno.kick_pitch_k, tk = tekno.tom_decay_k, tpk = tekno.tom_pitch_k;
@@ -291,7 +305,9 @@ FM1_AUDIO_CODE void tekno_render(int32_t *bus)
         }
         /* VOWEL over everything: the four bands of the vowel, the kick's sub (which no vowel band
          * passes) put back under, mixed with the dry */
-        int32_t all = k + t;
+        /* ACID */
+        if (acid_gate && !--acid_gate) tekno_acid_off();
+        int32_t all = k + t + tekno_acid_sample();
         sub += mul15(k - sub, SUB_K);
         if (update) {   /* where on the path, and the bands for it (interpolated between two places) */
             uint32_t turns = stepq << vshift;
