@@ -25,6 +25,7 @@ struct tekno_acid {
     float release, release_acc;                  /* the amp's release after the gate (plain, accented) */
     float ffm, sub, track, level;                /* FILTER FM depth; the sub's level; TRACK 0..1; output */
     int base;                                    /* the note TRACK is centred on */
+    float fine;                                  /* FINE: semitones added to every note (the kick's fine tune) */
     float sweep_oct, sweep_res;                  /* SWEEP: octaves opened at its top; resonance added (0..1 of the way to full) */
     float drive_gain, drive_high;                /* RAT (gain 0: off) */
     struct tekno_svf click, notch, drive_pre, drive_post;
@@ -36,6 +37,7 @@ struct tekno_acid {
 struct tekno_gren {
     float base_hz, space, r, morph;              /* the first filter; the ratio up to the next; 1/Q; the trapezoid's steepness */
     float move_oct, level;                       /* the bars' sweep, octaves each way; output */
+    float fine;                                  /* FINE: semitones added to its note */
 };
 enum { TEKNO_GATE_DRONE, TEKNO_GATE_4THS, TEKNO_GATE_8THS, TEKNO_GATE_16THS, TEKNO_GATE_GALLOP, TEKNO_GATES };
 

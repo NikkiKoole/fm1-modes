@@ -22,7 +22,7 @@
  *                     · GREN (BASE SPACE Q MORPH) · MOVE (its sweep DEPTH and RATE, GATE, LEVEL)
  *                     · PHASER (on the percussion: DEPTH BARS FDBK MIX) · FLANGE (on the hats: DEPTH BARS
  *                     FDBK MIX) · VOWEL (VOWEL MOVE RATE MIX) · MIX (the levels: KICK ROLL TOMS HATS;
- *                     then CLAP ACID GREN, and TEMPO). KICK's second page: TONE CLICK LEVEL.
+ *                     then CLAP ACID GREN, and TEMPO). KICK's second page: TONE CLICK LEVEL FINE (cents).
  *   SELECT            the instruments, the effects and the mix (each on the page it was left on);
  *   ALGORITHM         through the instrument's pages (KICK's two, ACID's four, GREN's two, MIX's two:
  *                     the header says "ACID 1/4"), as the stock firmware flips its parameter pages
@@ -107,7 +107,7 @@
 enum { PAGES = 17, PATTERNS = 4, FEELS = 8, LAYERS = 7, LANES = TEKNO_LANES };
 static const struct px_page pages[PAGES] = {
     {"KICK", {"TUNE", "PNCH", "DCAY", "DRV"}},
-    {"KICK", {"TONE", "CLK", "LVL", ""}},
+    {"KICK", {"TONE", "CLK", "LVL", "FINE"}},
     {"ROLL", {"FEEL", "DCAY", "CUT", "DRV"}},
     {"TOMS", {"TUNE", "GAP", "DCAY", "LVL"}},
     {"HATS", {"TONE", "CLSD", "OPEN", "LVL"}},
@@ -132,10 +132,10 @@ static int16_t knob[PAGES][4] = {{33, 60, 15, 26}, {62, 30, 62, 0}, {0, 40, 45, 
                                  {45, 45, 55, 55}, {50, 5, 3, 60},
                                  {80, 2, 50, 50}, {70, 3, 60, 0}, {50, 60, 3, 0},
                                  {62, 62, 45, 50}, {50, 60, 60, 0}};
-static const int16_t lo[PAGES][4] = {{28, 0, 0, 0}, {0, 0, 0, 0}, {0, 0, 0, 0}, {48, 1, 0, 0}, {0, 0, 0, 0}, {0, 0, 0, 0},
+static const int16_t lo[PAGES][4] = {{28, 0, 0, 0}, {0, 0, 0, -50}, {0, 0, 0, 0}, {48, 1, 0, 0}, {0, 0, 0, 0}, {0, 0, 0, 0},
                                      {0, 0, 0, 0}, {0, 0, 0, 0}, {0, 0, 0, 0}, {0, 0, 0, 0}, {0, 0, 0, 0}, {0, 0, 0, 0},
                                      {0, 0, 0, 0}, {0, 0, 0, 0}, {0, 0, 0, 0}, {0, 0, 0, 0}, {0, 0, 0, 0}};
-static const int16_t hi[PAGES][4] = {{39, 100, 100, 100}, {100, 100, 100, 0}, {FEELS - 1, 100, 100, 100}, {72, 12, 100, 100},
+static const int16_t hi[PAGES][4] = {{39, 100, 100, 100}, {100, 100, 100, 50}, {FEELS - 1, 100, 100, 100}, {72, 12, 100, 100},
                                      {100, 100, 100, 100}, {100, 100, 100, 100}, {100, 100, 100, 100}, {100, 100, 100, 100},
                                      {100, 100, 100, 100}, {100, 3, 2, 100}, {100, 100, 100, 100}, {100, 6, 4, 100},
                                      {100, 3, 95, 100}, {100, 3, 95, 100}, {100, 100, 5, 100}, {100, 100, 100, 100}, {100, 100, 100, 0}};
@@ -310,6 +310,11 @@ static void apply(void)
     struct tekno_params *t = &tekno;
     const int16_t *k = knob[0];
     t->kick_inc = dv.note_inc[k[0]];
+    {   /* FINE (on KICK's second page): cents on the kick and on every note that follows it */
+        int cents = knob[P_KICK2][3];
+        if (cents) t->kick_inc = (uint32_t)((float)t->kick_inc * exp2f_((float)cents / 1200.0f));
+        t->acid.fine = t->gren.fine = (float)cents / 100.0f;
+    }
     t->kick_pitch = (int32_t)((24.0f + 0.24f * (float)k[1]) * 65536.0f);              /* 24..48 semitones above */
     t->kick_pitch_k = per_16(6.0f + 0.3f * (float)k[1]);                                /* 6..36 ms */
     t->kick_decay_k = k[2] ? per_sample(60.0f * exp2f_((float)(100 - k[2]) * 0.07f)) : (1 << 30);   /* flat .. 60 ms */
@@ -474,6 +479,7 @@ static void value_text(unsigned pg, unsigned i, char *out)
     else if (pg == P_VOWEL && i == 3 && !v) strcpy(out, "OFF");
     else if (pg == P_MIX2 && i == 3) px_number((int)groove_tempo_current(), out);
     else if (pg == P_KICK && i == 2 && !v) strcpy(out, "FLAT");
+    else if (pg == P_KICK2 && i == 3) { if (v > 0) { strcpy(out, "+"); px_number(v, out + 1); } else px_number(v, out); }
     else if (pg == P_ACID && i == 0) px_number((int)(100.0f * exp2f_((float)v * 0.056f)), out);
     else if ((pg == P_ACID && i == 3) || (pg == P_DEVIL && i == 1)) {   /* decays in ms */
         int ms = (int)(30.0f * exp2f_((float)v * 0.0664386f));

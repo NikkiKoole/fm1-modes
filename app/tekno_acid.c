@@ -83,7 +83,7 @@ FM1_AUDIO_CODE void tekno_acid_sweep(float u)
 FM1_AUDIO_CODE void tekno_acid_note(int note, int accent, int slide)
 {
     const struct tekno_acid *a = &tekno.acid;
-    float semis = (float)(note - 69);
+    float semis = (float)(note - 69) + a->fine;   /* (FINE: the kick's fine tune) */
     v.frequency = 440.0f * fexp2(semis * (1.0f / 12.0f));
     v.cutoff = a->cutoff * fexp2(a->track * (float)(note - a->base) * (1.0f / 12.0f));   /* TRACK */
     v.accent_note = accent != 0;

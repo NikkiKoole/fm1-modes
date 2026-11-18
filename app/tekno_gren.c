@@ -43,7 +43,7 @@ static struct {
 
 FM1_AUDIO_CODE void tekno_gren_note(int note)
 {
-    g.inc = 440.0f * fexp2((float)(note - 69) * (1.0f / 12.0f)) * (1.0f / 44100.0f);
+    g.inc = 440.0f * fexp2(((float)(note - 69) + tekno.gren.fine) * (1.0f / 12.0f)) * (1.0f / 44100.0f);   /* (+ FINE) */
     if (g.idle) {
         for (unsigned i = 0; i < 3; ++i) g.low[i] = g.band[i] = 0.0f;
         g.tick = 0; g.amp = 0.0f;
