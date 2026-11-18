@@ -142,6 +142,21 @@ void px_fine_print(const char *s, int x, int y, unsigned c)
     fine_used = 1;
 }
 
+/* narrow: the outer columns 2 px, the middle one 1 (stems stay as bold as the bars) */
+int px_fine_width_narrow(const char *s) { int n = (int)strlen(s); return n ? n * PX_NARROW_ADV - 1 : 0; }
+void px_fine_print_narrow(const char *s, int x, int y, unsigned c)
+{
+    static const uint8_t cx[3] = {0, 2, 3}, cw[3] = {2, 1, 2};
+    for (; *s; ++s, x += PX_NARROW_ADV) {
+        uint16_t g = glyph(*s);
+        for (int row = 0; row < 5; ++row) {
+            unsigned bits = (g >> ((4 - row) * 3)) & 7U;
+            for (int col = 0; col < 3; ++col)
+                if (bits & (4U >> col)) px_fine_rect(x + cx[col], y + row * 2, cw[col], 2, c);
+        }
+    }
+    fine_used = 1;
+}
 void px_leds_off(void)
 {
     for (unsigned i = 0; i < PX_KEY_LED + PX_KEYS; ++i) fm1_led_set(i, 0);
@@ -167,32 +182,40 @@ void px_print_scaled(const char *s, int x, int y, int scale, unsigned c)
 void px_chrome_pads(const char *mode, const struct px_page *pages, unsigned count, unsigned current,
                     const char *const value[4], const char *const pad[PX_PADS], uint32_t lit)
 {
+    px_chrome_pads_colored(mode, pages, count, current, value, pad, lit, 0);
+}
+void px_chrome_pads_colored(const char *mode, const struct px_page *pages, unsigned count, unsigned current,
+                            const char *const value[4], const char *const pad[PX_PADS], uint32_t lit,
+                            const uint8_t color[PX_PADS])
+{
     px_print(mode, 2, 1, PX_GOLD);
     if (count) px_print(pages[current].name, 2 + (int)strlen(mode) * 4 + 3, 1, PX_EMBER);
-    for (unsigned i = 0; count > 1 && i < count; ++i)   /* one dot per page, right-aligned */
-        px_rect(PX_W - 2 - (int)(count - i) * 4, 2, 3, 3, i == current ? PX_WHITE : PX_DUSK);
-    /* the strip: a rule, the eleven black-key pads, the knob labels and their values */
+    /* one dot per page, right-aligned; when they would run into the title, on a line of their own under it */
+    int title_end = 2 + (int)strlen(mode) * 4 + 3 + (count ? (int)strlen(pages[current].name) * 4 : 0);
+    int dots_x = PX_W - 2 - (int)count * 4;
+    for (unsigned i = 0; count > 1 && i < count; ++i) {
+        if (dots_x > title_end) px_rect(dots_x + (int)i * 4, 2, 3, 3, i == current ? PX_WHITE : PX_DUSK);
+        else px_rect(2 + (int)i * 4, 7, 3, 1, i == current ? PX_WHITE : PX_DUSK);
+    }
+    /* the strip: the eleven black keys in one row of boxes (lit: filled; a key with nothing on it: an
+     * empty box), then the knobs' names (narrow) and their values */
     px_fine_cls(PX_NIGHT);
-    px_fine_rect(0, 1, PX_W * 3, 1, PX_DUSK);
     int y = 9;
     if (pad) {
-        /* 3 letters are 20 px and a pad has 21: zig-zag them over two rows, as the black keys alternate */
         for (unsigned i = 0; i < PX_PADS; ++i) {
-            if (!pad[i] || !*pad[i]) continue;
-            int cell = (int)i * (PX_W * 3) / PX_PADS, w = px_fine_width(pad[i]);
-            int x = cell + ((PX_W * 3) / PX_PADS - w) / 2, row = 3 + (int)(i & 1U) * 10;
-            unsigned on = (lit >> i) & 1U;
-            if (on) px_fine_rect(x - 2, row - 2, w + 4, 14, PX_GOLD);
-            px_fine_print(pad[i], x, row, on ? PX_NIGHT : PX_SLATE);
+            int x = 2 + (int)i * 21;
+            unsigned on = (lit >> i) & 1U, named = pad[i] && *pad[i];
+            px_fine_rect(x, 1, 20, 14, on && named ? (color ? color[i] : PX_GOLD) : PX_DUSK);
+            if (named) px_fine_print_narrow(pad[i], x + (20 - px_fine_width_narrow(pad[i])) / 2, 3, on ? PX_NIGHT : PX_SLATE);
         }
-        y = 26;
-    }
+        y = 20;
+    } else px_fine_rect(0, 1, PX_W * 3, 1, PX_DUSK);
     for (unsigned k = 0; k < 4; ++k) {
         int x = 3 + (int)k * 60;
         const char *label = count ? pages[current].knob[k] : 0;
         if (!label || !*label) continue;
-        px_fine_print(label, x, y, PX_SLATE);
-        if (value && value[k]) px_fine_print(value[k], x, y + (pad ? 11 : 13), PX_WHITE);
+        px_fine_print_narrow(label, x, y, PX_SLATE);
+        if (value && value[k]) px_fine_print(value[k], x, y + (pad ? 13 : 13), PX_WHITE);
     }
 }
 void px_chrome(const char *mode, const struct px_page *pages, unsigned count, unsigned current,

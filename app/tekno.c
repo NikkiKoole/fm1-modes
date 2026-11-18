@@ -138,7 +138,7 @@ static const struct { const char *name; uint16_t mask; } feels[FEELS] = {
 /* the layers on the black keys, in order */
 static const uint8_t layer_bit[LAYERS] = {TEKNO_KICK, TEKNO_ROLL, TEKNO_TOMS, TEKNO_HATS, TEKNO_CLAP, TEKNO_ACID, TEKNO_GREN};
 static const char *const layer_name[LAYERS] = {"RUMBLE", "ROLL", "TOMS", "HATS", "CLAP", "ACID", "GRENADIER"};
-static const uint8_t layer_color[LAYERS] = {PX_EMBER, PX_GOLD, PX_CYAN, PX_WHITE, PX_PINK, PX_GREEN, PX_RED};
+static const uint8_t layer_color[PX_PADS] = {PX_EMBER, PX_GOLD, PX_CYAN, PX_WHITE, PX_PINK, PX_GREEN, PX_RED};   /* (their pads' colour) */
 /* the patterns, a lane each: '.' rest, upper case accented.
  * TOMS h / l high / low; HATS x / o closed / open; CLAP x a clap.
  * Each key has a pattern, and some a second (VARIANTS later in the row): pressing a lit key again swaps */
@@ -162,7 +162,6 @@ static const struct { const char *name, *notes, *slides; } acid_lines[VARIANTS] 
     {0, 0, 0}, {0, 0, 0}, {0, 0, 0},
 };
 static const char *const pad_name[PX_PADS] = {"RMB", "RLL", "TOM", "HAT", "CLP", "ACD", "GRN", "", "", "", ""};
-static const char *const box_name[LAYERS] = {"RM", "RL", "TM", "HT", "CP", "AC", "GR"};   /* (the screen's layer row) */
 static const char *const note_name[12] = {"C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"};
 static const uint8_t white_keys[16] = {0, 2, 4, 6, 7, 9, 11, 12, 14, 16, 18, 19, 21, 23, 24, 26};
 static const uint8_t black_keys[PX_PADS] = {1, 3, 5, 8, 10, 13, 15, 17, 20, 22, 25};
@@ -459,15 +458,9 @@ static void draw(uint32_t now)
         lit |= on << l;
     }
     px_cls(PX_NIGHT);
-    px_chrome_pads("TEKNO", pages, PAGES, page, value, pad_name, lit);
+    /* the layers are the pads at the bottom, each lit in its own colour */
+    px_chrome_pads_colored("TEKNO", pages, PAGES, page, value, pad_name, lit, layer_color);
     px_print("TEKNO", 2, 1, PX_GOLD);
-    /* the layers, three letters each */
-    for (unsigned l = 0; l < LAYERS; ++l) {
-        unsigned on = (lit >> l) & 1U;
-        int x = 1 + (int)l * 11;
-        px_rect(x, 9, 10, 7, on ? layer_color[l] : PX_DUSK);
-        px_print(box_name[l], x + 1, 10, on ? PX_NIGHT : PX_SLATE);
-    }
     /* the three lanes, a row each (accents tall; toms' low and hats' open hits in their second colour),
      * dark when the layer is off; the playhead below */
     unsigned step = tekno_step;
@@ -478,7 +471,7 @@ static void draw(uint32_t now)
         for (unsigned s = 0; s < 16; ++s) {
             uint8_t code = step_code(steps[s]);
             if (!(code & 3U)) continue;
-            int x = 2 + (int)s * 5, y = 17 + (int)lane * 5;
+            int x = 2 + (int)s * 5, y = 10 + (int)lane * 6;
             unsigned color = on ? lane_color[lane][(code & 3U) == 2U] : PX_DUSK;
             if (code & 4U) px_rect(x, y, 4, 4, color); else px_rect(x, y + 2, 4, 2, color);
         }
@@ -493,14 +486,14 @@ static void draw(uint32_t now)
             if (c == '-') { if (last_y) px_rect(x - 1, last_y, 5, 1, color); continue; }
             if (c == '.') { last_y = 0; continue; }
             int semis = c >= 'a' ? c - 'a' : c - 'A';
-            int y = 36 - (semis > 15 ? 15 : semis) / 4;   /* rows 32..36 */
+            int y = 33 - (semis > 15 ? 15 : semis) / 4;   /* rows 30..33 */
             px_rect(x, y, 4, c < 'a' ? 2 : 1, color);
             if (sl[s] == '~') px_rect(x + 4, y, 1, 1, color);
             last_y = y;
         }
     }
     for (unsigned s = 0; s < 16; ++s)
-        px_rect(2 + (int)s * 5, 38, 4, 1, cr78_running && s == step ? PX_WHITE : (s & 3U) ? PX_SLATE : PX_GOLD);
+        px_rect(2 + (int)s * 5, 37, 4, 1, cr78_running && s == step ? PX_WHITE : (s & 3U) ? PX_SLATE : PX_GOLD);
     char line[24];
     if (shown_lane == LANES) {
         strcpy(line, "ACID "); strcat(line, acid_lines[acid_line].name);
