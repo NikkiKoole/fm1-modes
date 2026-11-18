@@ -24,8 +24,8 @@
  *                     FDBK MIX) · VOWEL (VOWEL MOVE RATE MIX) · MIX (the levels: KICK ROLL TOMS HATS;
  *                     then CLAP ACID GREN, and TEMPO). KICK's second page: TONE CLICK LEVEL.
  *   SELECT            the instruments, the effects and the mix (each on the page it was left on);
- *   SEL               the instrument's next page (KICK 2, ACID's four, GREN's two, MIX's two: the
- *                     header says "ACID 1/4", SEL is lit when there are more)
+ *   ALGORITHM         through the instrument's pages (KICK's two, ACID's four, GREN's two, MIX's two:
+ *                     the header says "ACID 1/4"), as the stock firmware flips its parameter pages
  *                     Each level is also on its layer's own page: both move together. The pads a page
  *                     is about are marked at the bottom (a white bar under their boxes).
  *   PLAY              play / stop (the first layer switched on starts it)
@@ -40,12 +40,11 @@
  * No swing: the references measured dead straight (the bounce is in which sixteenths are hit).
  *
  * TODO (talked about, not built yet):
- *   - THE BUTTON PLAN (TEKNO uses HOME, PLAY, SELECT, SEL, KNOB 1-4 and the keys; the rest is free:
- *     the other buttons and the ALGO and PRESETS encoders).
+ *   - THE BUTTON PLAN (TEKNO uses HOME, PLAY, SELECT, ALGO, KNOB 1-4 and the keys; the rest is free:
+ *     the other buttons and the PRESETS encoder).
  *     After docs/GROOVEBOX-MANUAL.md's grammar (hold = scope, GLO = the verbs, hold FX = pads):
  *       PRESETS encoder   scenes: turn to pick, in on the next bar
- *       ALGO encoder      free for now (candidates: the instrument's pages, which SEL does now; or the
- *                         generator's style for GEN: gallop-heavy, sparse, rolling, mental)
+ *       ALGO encoder      DONE: through the instrument's pages (as the stock firmware does)
  *       KIT               a knob in the MIX group: the sub-genre kit (tribe, mental / acidcore, hard
  *                         groove: the kick's model and the tempo range), set and forget
  *       SAVE (hold)       + a white key: store the scene in that slot
@@ -54,8 +53,9 @@
  *       ARP (hold)        stutter / beat repeat of the last 1/4, 1/8, 1/16 (KNOB 1 picks)
  *       GLO + layer key   the verbs on an instrument: GEN (a new pattern), its sound reset, ...
  *       OCT- / OCT+       transpose the key live (kick, ROLL, acid, grenadier together)
- *       SEL (SCL in the SDK)  DONE: the instrument's next page. The acid's scale (minor, phrygian,
- *                         chromatic) becomes a knob in the ACID group instead
+ *       SEL (SCL in the SDK)  free (tried for paging, ALGO does that now). The acid's scale (minor,
+ *                         phrygian, chromatic) becomes a knob in the ACID group; the generator's style
+ *                         for GEN (gallop-heavy, sparse, rolling, mental) still needs a home
  *       LFO               jump to the moving effects (SWEEP MOVE PHASER FLANGE VOWEL), each page
  *                         saying what it is on (answers "show what each effect is on")
  *       EDIT              jump to the last-touched layer's sound pages
@@ -143,7 +143,7 @@ static const int16_t hi[PAGES][4] = {{39, 100, 100, 100}, {100, 100, 100, 0}, {F
 static const uint8_t level_alias[][4] = {   /* page, knob  <->  page, knob */
     {P_KICK2, 2, P_MIX1, 0}, {P_TOMS, 3, P_MIX1, 2}, {P_HATS, 3, P_MIX1, 3},
     {P_CLAP, 3, P_MIX2, 0}, {P_GNARL, 3, P_MIX2, 1}, {P_MOVE, 3, P_MIX2, 2}};
-/* SELECT steps through the instruments (and the effects, the mix), SEL through an instrument's pages:
+/* SELECT steps through the instruments (and the effects, the mix), ALGORITHM through an instrument's pages:
  * each group's first page, and which of its pages it was left on */
 enum { GROUPS = 11 };
 static const uint8_t group_first[GROUPS + 1] = {P_KICK, P_ROLL, P_TOMS, P_HATS, P_CLAP, P_ACID, P_GREN, P_PHASER, P_FLANGE,
@@ -199,7 +199,6 @@ static const uint8_t black_keys[PX_PADS] = {1, 3, 5, 8, 10, 13, 15, 17, 20, 22, 
 static unsigned active, opened_once, page, full_redraw, shown_lane;
 static uint8_t pattern[LANES], pattern_playing[LANES], acid_line, acid_line_playing;
 static uint32_t prev_buttons, prev_keys, last_ms, led_state;
-static unsigned sel_led = 2;   /* SEL's LED: lit when the instrument has more pages (2: not set yet) */
 static int clamp(int v, int lo_, int hi_) { return v < lo_ ? lo_ : v > hi_ ? hi_ : v; }
 
 /* ---- control-side maths (floats are fine here) ---- */
@@ -586,8 +585,6 @@ static void leds(uint32_t now)
     for (unsigned i = 0; i < PX_PADS; ++i)
         if (((all ^ led_state) >> (16 + i)) & 1U) fm1_led_set(PX_KEY_LED + black_keys[i], (all >> (16 + i)) & 1U);
     led_state = all;
-    unsigned more = group_size(group_of(page)) > 1U;
-    if (more != sel_led) { fm1_led_set(PX_SCL, (int)more); sel_led = more; }
 }
 
 /* ---- the panel ---- */
@@ -609,7 +606,7 @@ int tekno_control(const struct fm1_controls *c)
             opened_once = 1;
         }
         apply();
-        px_leds_off(); led_state = 0; sel_led = 2;
+        px_leds_off(); led_state = 0;
         active = 1; full_redraw = 1; last_ms = now - 100U;
         px_flash("TEKNO", now, 700U);
         return 1;
@@ -665,9 +662,9 @@ int tekno_control(const struct fm1_controls *c)
         px_flash(text, now, 500U);
         changed = 1;
     }
-    if (pressed & PX_BIT(PX_SCL)) {   /* SEL (the panel's print; SCL in the SDK): the instrument's next page */
-        unsigned g = group_of(page);
-        group_at[g] = (uint8_t)((group_at[g] + 1U) % group_size(g));
+    if (c->encoders[1]) {   /* ALGORITHM: through the instrument's pages (as the stock firmware's parameter pages) */
+        unsigned g = group_of(page), n = group_size(g);
+        group_at[g] = (uint8_t)(((int)group_at[g] + c->encoders[1] + 4 * (int)n) % (int)n);
         page = group_first[g] + group_at[g];
         static char text[16];
         page_title(page, text);

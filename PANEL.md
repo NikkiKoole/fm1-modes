@@ -17,8 +17,8 @@ volume knob · speaker and headphone jack · MIDI in · USB-C · Bluetooth.
 
 | Index | Printed | `pixel.h` / use in our modes |
 |---|---|---|
-| 0 | SELECT | pages / instruments |
-| 1 | ALGORITHM | free in our modes so far (the stock firmware flips its bottom parameter pages with it) |
+| 0 | SELECT | pages (TEKNO: the instruments) |
+| 1 | ALGORITHM | the pages within an instrument (TEKNO), as the stock firmware flips its bottom parameter pages |
 | 2–5 | KNOB 1–4 | the four soft knobs (`c->encoders + 2`) |
 | 6 | PRESETS | mode presets / slots |
 | — | MASTER | not an encoder: the ADC reading `knob`, 0..1023 (volume; readable by the app) |
