@@ -330,14 +330,16 @@ struct groove_project *groove_project_scratch(void); /* control-only, transient 
 enum { GROOVE_SAMPLE_OFFSET = 69632, GROOVE_SAMPLE_BYTES = 466944,
        GROOVE_FLASH_BYTES = GROOVE_SAMPLE_OFFSET + GROOVE_SAMPLE_BYTES };
 /* Five final sectors hold the four DX7 banks and tuning/session preferences; four more before them
- * hold the GROOVEBOX's song (two copies of two sectors, written in turn).
+ * hold the GROOVEBOX's song (two copies of two sectors, written in turn), and two before those TEKNO's
+ * scenes (two copies of one sector, written in turn).
  * New sample transfers stop before them all. Larger legacy banks stay readable;
  * writes to overlapping extension storage are rejected before erasing Flash. */
 enum { GROOVE_TUNING_OFFSET = GROOVE_FLASH_BYTES - 4096,
        GROOVE_LIBRARY_OFFSET = GROOVE_TUNING_OFFSET - 4 * 4096,
        GROOVE_LIBRARY_LIMIT = GROOVE_LIBRARY_OFFSET - GROOVE_SAMPLE_OFFSET,   /* a bank past this overlaps the DX7 banks */
        GROOVE_GBX_OFFSET = GROOVE_LIBRARY_OFFSET - 4 * 4096, GROOVE_GBX_BYTES = 4 * 4096,
-       GROOVE_SAMPLE_LIMIT = GROOVE_GBX_OFFSET - GROOVE_SAMPLE_OFFSET };   /* new banks stop here */
+       GROOVE_TEKNO_OFFSET = GROOVE_GBX_OFFSET - 2 * 4096, GROOVE_TEKNO_BYTES = 2 * 4096,
+       GROOVE_SAMPLE_LIMIT = GROOVE_TEKNO_OFFSET - GROOVE_SAMPLE_OFFSET };   /* new banks stop here */
 /* Finish any committed shared journal before starting a new transaction. */
 int groove_storage_prepare(void);
 void groove_samples_init(void);

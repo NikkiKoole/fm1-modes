@@ -32,6 +32,9 @@
  *                     the header says "ACID 1/4"), as the stock firmware flips its parameter pages
  *                     Each level is also on its layer's own page: both move together. The pads a page
  *                     is about are marked at the bottom (a white bar under their boxes).
+ *   PRESETS           the scenes (the whole setup: layers, patterns, every knob, the tempo), in on the
+ *                     next bar: INIT DESERT GRINDER BREAKER MENTAL DRONE, then the ones saved
+ *   SAVE + white key  save the scene in that slot (1-16; while SAVE is held the lit keys are the ones used)
  *   PLAY              play / stop (the first layer switched on starts it)
  *   HOME              back (it keeps playing)
  * Layers and patterns change on the next bar (their keys blink until then). A layer's black key also takes
@@ -86,7 +89,8 @@
  *       REC               record knob moves (a sweep, a filter ride), looped with the bars
  *     With hold-a-black-key = its 16 patterns on the white keys (below), everything has a home.
  *     First: FX-hold pads and PRESETS + SAVE scenes (together: a whole set playable)
- *   - SCENES on PRESETS (the biggest win: from one song to a set of songs): a scene is the whole
+ *   - SCENES on PRESETS: DONE (six factory scenes, sixteen slots, SAVE + white key, in on the bar;
+ *     a short audio blip while Flash is written). Later maybe: a keep-tempo switch. What it was: a scene is the whole
  *     state (layers, patterns, every knob, tempo), recalled on the next bar. Factory scenes that are
  *     really different tracks (rolling-tom Desert Planet, rumble Axe Grinder, mental acid at 180,
  *     a slow Grenadier drone-tribe, ...) and the user's own saved to Flash (as GROOVEBOX's SAVE).
@@ -584,6 +588,124 @@ static void build_vowels(void)
     }
 }
 
+
+/* ---- SCENES: the whole setup (the layers, every pattern, every knob, the tempo). PRESETS browses them and
+ * the one chosen comes in on the next bar (instantly when stopped): six factory scenes, then the player's
+ * own, saved by holding SAVE and pressing a white key (sixteen slots). Kept in Flash: two copies of one
+ * sector, written in turn, the header last, so a cut while saving keeps the other. ---- */
+enum { FACTORY = 6, USER_SLOTS = 16, SCENE_MAGIC = 0x31534B54u /* "TKS1" */, SCENE_VERSION = PAGES * 256 + LAYERS };
+struct scene { uint8_t want, acid, tempo, perc_wave[2], pattern[LANES]; int16_t knob[PAGES][4]; };
+struct scene_store { uint32_t magic, version, seq; uint8_t used[USER_SLOTS]; struct scene slot[USER_SLOTS]; };
+typedef char scene_store_fits[sizeof(struct scene_store) <= FM1_FLASH_SECTOR_BYTES ? 1 : -1];
+static struct scene_store store;
+static int16_t knob_default[PAGES][4];
+static struct scene pending_scene;
+static unsigned scene_pending, scene_pending_bar, scene_at, scene_flash_until;
+static char scene_name[16];
+struct tweak { uint8_t page, i; int16_t v; };
+static const struct {
+    const char *name; uint8_t want, tempo, pattern[LANES], acid, perc_sound; struct tweak t[6];
+} factory[FACTORY] = {
+    {"INIT", TEKNO_KICK, 165, {0, 0, 0}, 0, 0, {{0, 0, 0}}},
+    /* after Desert Planet: rolling bass on C2, toms on every sixteenth, short hats, the phaser over 4 bars */
+    {"DESERT", TEKNO_ROLL | TEKNO_TOMS | TEKNO_HATS, 161, {0, 0, 0}, 0, 0, {{P_KICK, 0, 36}, {P_ROLL, 0, 1}}},
+    /* after Axe To Grind: the rumble on A1, galloping toms and hats */
+    {"GRINDER", TEKNO_KICK | TEKNO_TOMS | TEKNO_HATS, 172, {1, 2, 0}, 0, 0, {{0, 0, 0}}},
+    /* after Axe Breaker: the rolling gallop, tribe toms, offbeat hats, the clap broken across the bar */
+    {"BREAKER", TEKNO_ROLL | TEKNO_TOMS | TEKNO_HATS | TEKNO_CLAP, 168, {2, 1, 2}, 0, 0, {{0, 0, 0}}},
+    /* after Instant Coffee and Floatdemonium: 185, the fat driven rumble, 16th hats, the mental acid */
+    {"MENTAL", TEKNO_KICK | TEKNO_HATS | TEKNO_ACID, 185, {0, 0, 0}, 3, 0, {{P_KICK, 3, 80}, {P_PHASER, 1, 1}, {P_ACID, 0, 45}}},
+    /* the grenadier droning over the rumble, tribe toms, PERC bloops */
+    {"DRONE", TEKNO_KICK | TEKNO_TOMS | TEKNO_GREN | TEKNO_PERC, 160, {2, 0, 0}, 0, 0,
+     {{P_MOVE, 2, 0}, {P_MOVE, 1, 5}, {P_MOVE, 0, 70}, {P_PERC, 1, 2}}},
+};
+static void scene_capture(struct scene *sc)
+{
+    sc->want = tekno.want; sc->acid = acid_line; sc->tempo = (uint8_t)groove_tempo_current();
+    for (unsigned v = 0; v < 2; ++v) sc->perc_wave[v] = perc_wave[v];
+    for (unsigned l = 0; l < LANES; ++l) sc->pattern[l] = pattern[l];
+    for (unsigned pg = 0; pg < PAGES; ++pg) for (unsigned i = 0; i < 4; ++i) sc->knob[pg][i] = knob[pg][i];
+}
+static void scene_factory(unsigned n, struct scene *sc)
+{
+    sc->want = factory[n].want; sc->acid = factory[n].acid; sc->tempo = factory[n].tempo;
+    for (unsigned l = 0; l < LANES; ++l) sc->pattern[l] = factory[n].pattern[l];
+    for (unsigned pg = 0; pg < PAGES; ++pg) for (unsigned i = 0; i < 4; ++i) sc->knob[pg][i] = knob_default[pg][i];
+    unsigned ps = factory[n].perc_sound;   /* (its PERC sound, as SND loads it) */
+    for (unsigned v = 0; v < 2; ++v) {
+        sc->perc_wave[v] = perc_sounds[ps].wave[v];
+        for (unsigned i = 0; i < 4; ++i) sc->knob[P_PERCA + v][i] = perc_sounds[ps].v[v][i];
+    }
+    sc->knob[P_PERC][0] = (int16_t)ps; sc->knob[P_PERC][2] = perc_sounds[ps].ring;
+    for (unsigned k = 0; k < 6; ++k) if (factory[n].t[k].page || factory[n].t[k].i || factory[n].t[k].v)
+        sc->knob[factory[n].t[k].page][factory[n].t[k].i] = factory[n].t[k].v;
+}
+static void scene_apply_sound(const struct scene *sc)   /* the knobs and the tempo (at the bar) */
+{
+    for (unsigned pg = 0; pg < PAGES; ++pg) for (unsigned i = 0; i < 4; ++i) knob[pg][i] = sc->knob[pg][i];
+    for (unsigned v = 0; v < 2; ++v) perc_wave[v] = sc->perc_wave[v];
+    groove_tempo_edit((int)sc->tempo - (int)groove_tempo_current());
+    apply();
+}
+static void scene_queue(const struct scene *sc)   /* layers and patterns now (the audio takes them at the bar), the rest at the bar */
+{
+    for (unsigned l = 0; l < LANES; ++l) load_pattern(l, sc->pattern[l]);
+    load_acid(sc->acid);
+    load_perc_pattern((unsigned)sc->knob[P_PERC][1]);
+    tekno.want = sc->want; tekno.engaged = sc->want != 0;
+    pending_scene = *sc;
+    if (!cr78_running) { scene_apply_sound(&pending_scene); scene_pending = 0; }
+    else { scene_pending = 1; scene_pending_bar = tekno_bar; }
+}
+static void scene_tick(void)   /* (each frame) the bar came: the knobs and tempo follow */
+{
+    if (scene_pending && (!cr78_running || tekno_bar != scene_pending_bar)) { scene_apply_sound(&pending_scene); scene_pending = 0; }
+}
+static void store_load(void)
+{
+    struct { uint32_t magic, version, seq; } h[2];
+    int best = -1;
+    for (unsigned c = 0; c < 2; ++c) {
+        if (fm1_flash_read(GROOVE_TEKNO_OFFSET + c * FM1_FLASH_SECTOR_BYTES, &h[c], sizeof h[c]) ||
+            h[c].magic != SCENE_MAGIC || h[c].version != SCENE_VERSION) continue;
+        if (best < 0 || h[c].seq > h[best].seq) best = (int)c;
+    }
+    if (best < 0 || fm1_flash_read(GROOVE_TEKNO_OFFSET + (unsigned)best * FM1_FLASH_SECTOR_BYTES, &store, sizeof store)) {
+        memset(&store, 0, sizeof store);
+    }
+}
+static int store_save(unsigned slot)
+{
+    if (fm1_flash_size() < GROOVE_FLASH_BYTES) return FM1_FLASH_UNAVAILABLE;
+    scene_capture(&store.slot[slot]);
+    store.used[slot] = 1;
+    store.magic = SCENE_MAGIC; store.version = SCENE_VERSION; ++store.seq;
+    uint32_t at = GROOVE_TEKNO_OFFSET + (store.seq & 1U) * FM1_FLASH_SECTOR_BYTES;   /* the other copy than last time */
+    int r = fm1_flash_erase(at);
+    if (!r) r = fm1_flash_write(at + 12, (const uint8_t *)&store + 12, sizeof store - 12);
+    if (!r) r = fm1_flash_write(at, &store, 12);   /* the header last */
+    return r;
+}
+static unsigned scene_count(void)   /* the browsing list: the factory ones, then the slots saved */
+{
+    unsigned n = FACTORY;
+    for (unsigned k = 0; k < USER_SLOTS; ++k) n += store.used[k];
+    return n;
+}
+static void scene_pick(unsigned at)   /* entry `at` of the list: queue it, name it */
+{
+    struct scene sc;
+    if (at < FACTORY) { scene_factory(at, &sc); strcpy(scene_name, factory[at].name); }
+    else {
+        unsigned k = 0, n = at - FACTORY;
+        while (k < USER_SLOTS && (!store.used[k] || n--)) ++k;
+        if (k >= USER_SLOTS) return;
+        sc = store.slot[k];
+        strcpy(scene_name, "USER "); px_number((int)k + 1, scene_name + 5);
+    }
+    scene_queue(&sc);
+}
+
 /* ---- the screen ---- */
 static void value_text(unsigned pg, unsigned i, char *out)
 {
@@ -687,7 +809,11 @@ static void draw(uint32_t now)
     for (unsigned s = 0; s < 16; ++s)
         px_rect(2 + (int)s * 5, 37, 4, 1, cr78_running && s == step ? PX_WHITE : (s & 3U) ? PX_SLATE : PX_GOLD);
     char line[24];
-    if (shown_lane == LANES) {
+    if (scene_pending || (int32_t)(scene_flash_until - now) > 0) {   /* a scene: blinking until its bar */
+        strcpy(line, "SCENE "); strcat(line, scene_name);
+        if (scene_pending && blink) line[0] = 0;
+        px_print(line, 2, 40, PX_WHITE);
+    } else if (shown_lane == LANES) {
         strcpy(line, "ACID "); strcat(line, acid_lines[acid_line].name);
         if (acid_line != acid_line_playing && blink) line[0] = 0;
         px_print(line, 2, 40, PX_GREEN);
@@ -721,6 +847,7 @@ static void draw(uint32_t now)
     px_print(line, 46, 56, PX_SLATE);
     px_flash_draw(now);
 }
+static unsigned save_held;
 static void leds(uint32_t now)
 {
     unsigned blink = (now / 140U) & 1U;
@@ -734,6 +861,10 @@ static void leds(uint32_t now)
     for (unsigned lane = 0; lane < LANES; ++lane)
         whites |= 1U << (4U * lane + (pattern[lane] != pattern_playing[lane] && blink ? pattern_playing[lane] : pattern[lane]) % PATTERNS);
     whites |= 1U << (12U + (acid_line != acid_line_playing && blink ? acid_line_playing : acid_line) % PATTERNS);
+    if (save_held) {   /* SAVE held: the slots in use */
+        whites = 0;
+        for (unsigned k = 0; k < USER_SLOTS; ++k) whites |= (uint32_t)store.used[k] << k;
+    }
     uint32_t all = whites | (layers << 16);
     for (unsigned s = 0; s < 16; ++s)
         if (((all ^ led_state) >> s) & 1U) fm1_led_set(PX_KEY_LED + white_keys[s], (all >> s) & 1U);
@@ -754,6 +885,8 @@ int tekno_control(const struct fm1_controls *c)
         dv_build_tables();
         if (!opened_once) {   /* the first time: the ratios, the sound, a tempo of the scene */
             for (unsigned i = 0; i < TEKNO_RATIOS; ++i) tekno.ratio[i] = (uint32_t)(exp2f_((float)i / 96.0f) * 65536.0f);
+            for (unsigned pg = 0; pg < PAGES; ++pg) for (unsigned i = 0; i < 4; ++i) knob_default[pg][i] = knob[pg][i];   /* (the factory scenes' base) */
+            store_load();
             build_vowels();
             init_acid(); load_acid(0); acid_line_playing = 0;
             load_perc_sound(0); load_perc_pattern(0);
@@ -789,6 +922,31 @@ int tekno_control(const struct fm1_controls *c)
         px_flash(layer_name[i], now, 400U);
         changed = 1;
     }
+    /* SAVE held: a white key saves the scene in that slot (and the keys do nothing else) */
+    unsigned saving = (c->buttons & PX_BIT(PX_SAVE)) != 0;
+    if (saving != save_held) changed = 1;
+    save_held = saving;
+    if (saving) {
+        for (unsigned k = 0; k < 16; ++k) {
+            if (!((down >> white_keys[k]) & 1U)) continue;
+            static char text[24];
+            int r = store_save(k);
+            strcpy(text, r ? "SAVE FAILED" : "SAVED "); if (!r) px_number((int)k + 1, text + 6);
+            px_flash(text, now, 800U);
+            changed = 1;
+        }
+        for (unsigned k = 0; k < 16; ++k) down &= ~(1U << white_keys[k]);   /* (the white keys are taken) */
+    }
+    /* PRESETS: the scenes, in on the next bar */
+    if (c->encoders[6]) {
+        unsigned n = scene_count();
+        scene_at = (unsigned)(((int)scene_at + c->encoders[6] + 64 * (int)n) % (int)n);
+        scene_pick(scene_at);
+        px_flash(scene_name, now, 700U);
+        scene_flash_until = now + 4000U;
+        changed = 1;
+    }
+    scene_tick();
     /* white keys 1-12: the toms', hats' and clap's patterns, four each */
     for (unsigned s = 0; s < LANES * PATTERNS; ++s) {
         if (!((down >> white_keys[s]) & 1U)) continue;
