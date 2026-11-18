@@ -13,7 +13,7 @@
  *   white keys 9-12   the clap's pattern: BACKBEAT, OFFBEAT, BREAKER, FILL
  *   white keys 13-16  the acid's line: PULSE (again: DOTTED), GALLOP, SQUELCH, MENTAL
  *                     (a lit pattern key pressed again swaps to its second pattern, where it has one)
- *   SELECT            pages: KICK (TUNE PUNCH DECAY DRIVE) · ROLL (FEEL: GALLOP ROLL OFFBEAT PUSH
+ *   (the pages)       KICK (TUNE PUNCH DECAY DRIVE) · ROLL (FEEL: GALLOP ROLL OFFBEAT PUSH
  *                     REVERSE HICCUP 3-3-2 DOTTED; DECAY CUTOFF DRIVE)
  *                     · TOMS (TUNE GAP DECAY LEVEL) · HATS (TONE CLOSED OPEN LEVEL)
  *                     · CLAP (TUNE SPREAD DECAY LEVEL) · ACID (CUTOFF RESO ENV DECAY)
@@ -21,8 +21,11 @@
  *                     · SWEEP (the acid's cutoff ridden on the bars: DEPTH BARS SHAPE RESO)
  *                     · GREN (BASE SPACE Q MORPH) · MOVE (its sweep DEPTH and RATE, GATE, LEVEL)
  *                     · PHASER (on the percussion: DEPTH BARS FDBK MIX) · FLANGE (on the hats: DEPTH BARS
- *                     FDBK MIX) · VOWEL (VOWEL MOVE RATE MIX) · MIX 1 (the levels: KICK ROLL TOMS HATS)
- *                     · MIX 2 (CLAP ACID GREN, and TEMPO). KICK 2 (TONE CLICK LEVEL) follows KICK.
+ *                     FDBK MIX) · VOWEL (VOWEL MOVE RATE MIX) · MIX (the levels: KICK ROLL TOMS HATS;
+ *                     then CLAP ACID GREN, and TEMPO). KICK's second page: TONE CLICK LEVEL.
+ *   SELECT            the instruments, the effects and the mix (each on the page it was left on);
+ *   SEL               the instrument's next page (KICK 2, ACID's four, GREN's two, MIX's two: the
+ *                     header says "ACID 1/4", SEL is lit when there are more)
  *                     Each level is also on its layer's own page: both move together. The pads a page
  *                     is about are marked at the bottom (a white bar under their boxes).
  *   PLAY              play / stop (the first layer switched on starts it)
@@ -37,20 +40,22 @@
  * No swing: the references measured dead straight (the bounce is in which sixteenths are hit).
  *
  * TODO (talked about, not built yet):
- *   - THE BUTTON PLAN (TEKNO uses only HOME, PLAY, SELECT, KNOB 1-4 and the keys; the rest is free:
- *     every button and the ALGO and PRESETS encoders).
+ *   - THE BUTTON PLAN (TEKNO uses HOME, PLAY, SELECT, SEL, KNOB 1-4 and the keys; the rest is free:
+ *     the other buttons and the ALGO and PRESETS encoders).
  *     After docs/GROOVEBOX-MANUAL.md's grammar (hold = scope, GLO = the verbs, hold FX = pads):
  *       PRESETS encoder   scenes: turn to pick, in on the next bar
- *       ALGO encoder      KIT: the sub-genre kit (tribe, mental / acidcore, hard groove: the kick's
- *                         model and the tempo range). Alternative: the generator's style for GEN
- *                         (gallop-heavy, sparse, rolling, mental)
+ *       ALGO encoder      free for now (candidates: the instrument's pages, which SEL does now; or the
+ *                         generator's style for GEN: gallop-heavy, sparse, rolling, mental)
+ *       KIT               a knob in the MIX group: the sub-genre kit (tribe, mental / acidcore, hard
+ *                         groove: the kick's model and the tempo range), set and forget
  *       SAVE (hold)       + a white key: store the scene in that slot
  *       FX (hold)         the black keys become performance pads: DROP, BUILD, DJ filter, echo
  *                         throw, stutter, ... (let go to release)
  *       ARP (hold)        stutter / beat repeat of the last 1/4, 1/8, 1/16 (KNOB 1 picks)
  *       GLO + layer key   the verbs on an instrument: GEN (a new pattern), its sound reset, ...
  *       OCT- / OCT+       transpose the key live (kick, ROLL, acid, grenadier together)
- *       SCL               the acid's scale (minor, phrygian, chromatic)
+ *       SEL (SCL in the SDK)  DONE: the instrument's next page. The acid's scale (minor, phrygian,
+ *                         chromatic) becomes a knob in the ACID group instead
  *       LFO               jump to the moving effects (SWEEP MOVE PHASER FLANGE VOWEL), each page
  *                         saying what it is on (answers "show what each effect is on")
  *       EDIT              jump to the last-touched layer's sound pages
@@ -102,7 +107,7 @@
 enum { PAGES = 17, PATTERNS = 4, FEELS = 8, LAYERS = 7, LANES = TEKNO_LANES };
 static const struct px_page pages[PAGES] = {
     {"KICK", {"TUNE", "PNCH", "DCAY", "DRV"}},
-    {"KICK 2", {"TONE", "CLK", "LVL", ""}},
+    {"KICK", {"TONE", "CLK", "LVL", ""}},
     {"ROLL", {"FEEL", "DCAY", "CUT", "DRV"}},
     {"TOMS", {"TUNE", "GAP", "DCAY", "LVL"}},
     {"HATS", {"TONE", "CLSD", "OPEN", "LVL"}},
@@ -116,8 +121,8 @@ static const struct px_page pages[PAGES] = {
     {"PHASER", {"DPTH", "BARS", "FDBK", "MIX"}},
     {"FLANGE", {"DPTH", "BARS", "FDBK", "MIX"}},
     {"VOWEL", {"VOWL", "MOVE", "RATE", "MIX"}},
-    {"MIX 1", {"KICK", "ROLL", "TOMS", "HATS"}},
-    {"MIX 2", {"CLAP", "ACID", "GREN", "TMPO"}},
+    {"MIX", {"KICK", "ROLL", "TOMS", "HATS"}},
+    {"MIX", {"CLAP", "ACID", "GREN", "TMPO"}},
 };
 /* knob values, a page a row (see apply()); MIX 1 / MIX 2 are the levels, each also on its layer's own page */
 enum { P_KICK, P_KICK2, P_ROLL, P_TOMS, P_HATS, P_CLAP, P_ACID, P_DEVIL, P_GNARL, P_SWEEP, P_GREN, P_MOVE, P_PHASER, P_FLANGE,
@@ -138,6 +143,12 @@ static const int16_t hi[PAGES][4] = {{39, 100, 100, 100}, {100, 100, 100, 0}, {F
 static const uint8_t level_alias[][4] = {   /* page, knob  <->  page, knob */
     {P_KICK2, 2, P_MIX1, 0}, {P_TOMS, 3, P_MIX1, 2}, {P_HATS, 3, P_MIX1, 3},
     {P_CLAP, 3, P_MIX2, 0}, {P_GNARL, 3, P_MIX2, 1}, {P_MOVE, 3, P_MIX2, 2}};
+/* SELECT steps through the instruments (and the effects, the mix), SEL through an instrument's pages:
+ * each group's first page, and which of its pages it was left on */
+enum { GROUPS = 11 };
+static const uint8_t group_first[GROUPS + 1] = {P_KICK, P_ROLL, P_TOMS, P_HATS, P_CLAP, P_ACID, P_GREN, P_PHASER, P_FLANGE,
+                                                P_VOWEL, P_MIX1, PAGES};
+static uint8_t group_at[GROUPS];
 /* which layers (pad bit l = black key l + 1) each page is about: their boxes are marked at the bottom */
 static const uint8_t page_layers[PAGES] = {
     0x03, 0x03, 0x02, 0x04, 0x08, 0x10, 0x20, 0x20, 0x20, 0x20, 0x40, 0x40,   /* KICK (RUMBLE and ROLL's) .. MOVE */
@@ -188,6 +199,7 @@ static const uint8_t black_keys[PX_PADS] = {1, 3, 5, 8, 10, 13, 15, 17, 20, 22, 
 static unsigned active, opened_once, page, full_redraw, shown_lane;
 static uint8_t pattern[LANES], pattern_playing[LANES], acid_line, acid_line_playing;
 static uint32_t prev_buttons, prev_keys, last_ms, led_state;
+static unsigned sel_led = 2;   /* SEL's LED: lit when the instrument has more pages (2: not set yet) */
 static int clamp(int v, int lo_, int hi_) { return v < lo_ ? lo_ : v > hi_ ? hi_ : v; }
 
 /* ---- control-side maths (floats are fine here) ---- */
@@ -404,6 +416,14 @@ static void start_if_stopped(void)
     if (!view.playing) { const uint8_t command = 0xfb; (void)groove_midi_local(&command, 1); }
 }
 unsigned tekno_active(void) { return active; }
+static unsigned group_of(unsigned pg) { unsigned g = 0; while (g + 1U < GROUPS && pg >= group_first[g + 1]) ++g; return g; }
+static unsigned group_size(unsigned g) { return (unsigned)(group_first[g + 1] - group_first[g]); }
+static void page_title(unsigned pg, char *out)   /* "DEVIL 2/4" (just the name when a group has one page) */
+{
+    unsigned g = group_of(pg), n = group_size(g);
+    strcpy(out, pages[pg].name);
+    if (n > 1) { strcat(out, " "); px_number((int)(pg - group_first[g]) + 1, out + strlen(out)); strcat(out, "/"); px_number((int)n, out + strlen(out)); }
+}
 
 /* ---- VOWEL: tiny acid jam's formant filter (dreamengine runtime/sound.h, fx_set_formant): four band
  * passes on the measured vowel formants (Synth Secrets' adult male), U O A E I, bandwidths narrowed
@@ -478,7 +498,15 @@ static void draw(uint32_t now)
     }
     px_cls(PX_NIGHT);
     /* the layers are the pads at the bottom, each lit in its own colour */
-    px_chrome_pads_marked("TEKNO", pages, PAGES, page, value, pad_name, lit, layer_color, page_layers[page]);
+    {   /* the header: the page's name and where in its instrument ("ACID 1/4"); one dot an instrument */
+        static struct px_page shown[GROUPS];
+        static char title[16];
+        unsigned g = group_of(page);
+        page_title(page, title);
+        shown[g].name = title;
+        for (unsigned i = 0; i < 4; ++i) shown[g].knob[i] = pages[page].knob[i];
+        px_chrome_pads_marked("TEKNO", shown, GROUPS, g, value, pad_name, lit, layer_color, page_layers[page]);
+    }
     px_print("TEKNO", 2, 1, PX_GOLD);
     /* the three lanes, a row each (accents tall; toms' low and hats' open hits in their second colour),
      * dark when the layer is off; the playhead below */
@@ -558,6 +586,8 @@ static void leds(uint32_t now)
     for (unsigned i = 0; i < PX_PADS; ++i)
         if (((all ^ led_state) >> (16 + i)) & 1U) fm1_led_set(PX_KEY_LED + black_keys[i], (all >> (16 + i)) & 1U);
     led_state = all;
+    unsigned more = group_size(group_of(page)) > 1U;
+    if (more != sel_led) { fm1_led_set(PX_SCL, (int)more); sel_led = more; }
 }
 
 /* ---- the panel ---- */
@@ -579,7 +609,7 @@ int tekno_control(const struct fm1_controls *c)
             opened_once = 1;
         }
         apply();
-        px_leds_off(); led_state = 0;
+        px_leds_off(); led_state = 0; sel_led = 2;
         active = 1; full_redraw = 1; last_ms = now - 100U;
         px_flash("TEKNO", now, 700U);
         return 1;
@@ -627,9 +657,21 @@ int tekno_control(const struct fm1_controls *c)
         changed = 1;
     }
     /* SELECT: pages */
-    if (c->encoders[0]) {
-        page = (unsigned)(((int)page + c->encoders[0] + 4 * PAGES) % PAGES);
-        px_flash(pages[page].name, now, 500U);
+    if (c->encoders[0]) {   /* SELECT: the instruments, each on the page it was left on */
+        unsigned g = (unsigned)(((int)group_of(page) + c->encoders[0] + 4 * GROUPS) % GROUPS);
+        page = group_first[g] + group_at[g];
+        static char text[16];
+        page_title(page, text);
+        px_flash(text, now, 500U);
+        changed = 1;
+    }
+    if (pressed & PX_BIT(PX_SCL)) {   /* SEL (the panel's print; SCL in the SDK): the instrument's next page */
+        unsigned g = group_of(page);
+        group_at[g] = (uint8_t)((group_at[g] + 1U) % group_size(g));
+        page = group_first[g] + group_at[g];
+        static char text[16];
+        page_title(page, text);
+        px_flash(text, now, 500U);
         changed = 1;
     }
     /* KNOB 1-4 */
