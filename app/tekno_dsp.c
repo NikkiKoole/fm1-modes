@@ -168,7 +168,7 @@ static FM1_AUDIO_CODE void fire(unsigned p, uint32_t delay)
     tekno_step = (uint8_t)s;
     unsigned layers = tekno_layers;
     if ((layers & (TEKNO_KICK | TEKNO_ROLL)) && !(s & 3U)) kick_hit(delay, (layers & TEKNO_ROLL) != 0);
-    if ((layers & TEKNO_ROLL) && ((tekno.roll_feel >> (s & 3U)) & 1U))
+    if ((layers & TEKNO_ROLL) && (s & 3U) && ((tekno.roll_feel >> s) & 1U))   /* (the kick has the beats) */
         bass_hit((s & 3U) == 2U ? ONE30 : (s & 3U) == 3U ? ONE30 / 10 * 8 : ONE30 / 10 * 7);   /* the & loudest */
     const uint8_t *toms = lanes[TEKNO_LANE_TOMS];
     if ((layers & TEKNO_TOMS) && (toms[s] & 3U)) tom_hit((toms[s] & 3U) == 2U, (toms[s] & 4U) != 0);

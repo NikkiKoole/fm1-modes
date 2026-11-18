@@ -8,11 +8,13 @@
  *   black key 4, 5    HATS, CLAP on / off
  *   black key 6       ACID on / off: a 303 line on the kick's note (an octave up)
  *   black key 7       GRENADIER on / off: a triple-filterbank drone on the same note, chugged by its gate
- *   white keys 1-4    the toms' pattern: RUN, GALLOP, TRIBE, SPARSE
+ *   white keys 1-4    the toms' pattern: RUN, GALLOP, TRIBE (again: 3-3-2), SPARSE
  *   white keys 5-8    the hats' pattern: 16THS, OFFBEAT, GALLOP, BUSY
  *   white keys 9-12   the clap's pattern: BACKBEAT, OFFBEAT, BREAKER, FILL
- *   white keys 13-16  the acid's line: PULSE, GALLOP, SQUELCH, MENTAL
- *   SELECT            pages: KICK (TUNE PUNCH DECAY DRIVE) · ROLL (FEEL DECAY CUTOFF DRIVE)
+ *   white keys 13-16  the acid's line: PULSE (again: DOTTED), GALLOP, SQUELCH, MENTAL
+ *                     (a lit pattern key pressed again swaps to its second pattern, where it has one)
+ *   SELECT            pages: KICK (TUNE PUNCH DECAY DRIVE) · ROLL (FEEL: GALLOP ROLL OFFBEAT PUSH
+ *                     REVERSE HICCUP 3-3-2 DOTTED; DECAY CUTOFF DRIVE)
  *                     · TOMS (TUNE GAP DECAY LEVEL) · HATS (TONE CLOSED OPEN LEVEL)
  *                     · CLAP (TUNE SPREAD DECAY LEVEL) · ACID (CUTOFF RESO ENV DECAY)
  *                     · DEVIL (ACCENT ACCENT-DECAY SLIDE DRIVE) · GNARL (FILTER-FM SUB TRACK LEVEL)
@@ -40,6 +42,9 @@
  *     its repeats filtered darker (the FX rack has no delay, only the spring)
  *   - GRENADIER's CMOS drift: each pulse nudges the filters a little at random (the cart's RND)
  *   - fuller CLAPS: they sound thin next to the references; more noise body, a bit of room
+ *   - MORE THAN 16 PATTERNS: the white keys are full (4 lanes x 4) and "press again" only gives
+ *     each key a second. Needs a real answer for every instrument (see the notes in chat:
+ *     a pattern bank page, a hold-to-pick, or the lane's own page choosing the pattern)
  *   - SHOW WHAT EACH EFFECT IS ON: the screen doesn't say it. SWEEP is the acid's, MOVE
  *     grenadier's, FLANGE the hats', PHASER the percussion's (toms, hats, clap), VOWEL the whole
  *     mix (the kick's sub kept out), and the FX mode's rack only what its CR78 SEND gives it.
@@ -53,7 +58,7 @@
 #include "cr78.h"
 #include <string.h>
 
-enum { PAGES = 15, PATTERNS = 4, FEELS = 4, LAYERS = 7, LANES = TEKNO_LANES };
+enum { PAGES = 15, PATTERNS = 4, FEELS = 8, LAYERS = 7, LANES = TEKNO_LANES };
 static const struct px_page pages[PAGES] = {
     {"KICK", {"TUNE", "PNCH", "DCAY", "DRV"}},
     {"ROLL", {"FEEL", "DCAY", "CUT", "DRV"}},
@@ -81,32 +86,46 @@ static int16_t knob[PAGES][4] = {{33, 60, 15, 26}, {0, 40, 45, 40}, {56, 2, 45, 
 static const int16_t lo[PAGES][4] = {{28, 0, 0, 0}, {0, 0, 0, 0}, {48, 1, 0, 0}, {0, 0, 0, 0}, {0, 0, 0, 0},
                                      {0, 0, 0, 0}, {0, 0, 0, 0}, {0, 0, 0, 0}, {0, 0, 0, 0}, {0, 0, 0, 0}, {0, 0, 0, 0},
                                      {0, 0, 0, 0}, {0, 0, 0, 0}, {0, 0, 0, 0}, {0, 0, 0, 0}};
-static const int16_t hi[PAGES][4] = {{39, 100, 100, 100}, {3, 100, 100, 100}, {72, 12, 100, 100}, {100, 100, 100, 100},
+static const int16_t hi[PAGES][4] = {{39, 100, 100, 100}, {FEELS - 1, 100, 100, 100}, {72, 12, 100, 100}, {100, 100, 100, 100},
                                      {100, 100, 100, 100}, {100, 100, 100, 100}, {100, 100, 100, 100}, {100, 100, 100, 100},
                                      {100, 3, 2, 100}, {100, 100, 100, 100}, {100, 6, 4, 100}, {100, 3, 95, 100}, {100, 3, 95, 100}, {100, 100, 5, 100}, {0, 100, 100, 100}};
-/* ROLL's feels: which sixteenths after the kick get a bass note (bit 1 e, 2 &, 3 a) */
-static const struct { const char *name; uint8_t mask; } feels[FEELS] = {
-    {"GALLOP", 0x0C}, {"ROLL", 0x0E}, {"OFFBEAT", 0x04}, {"PUSH", 0x08}};
+/* ROLL's feels: which sixteenths of the bar get a bass note (bit s: step s; the kick has the beats).
+ * The first ones repeat every beat; 3-3-2 and DOTTED cross it (groups of three against the kick) */
+static const struct { const char *name; uint16_t mask; } feels[FEELS] = {
+    {"GALLOP", 0xCCCC},    /* X . x x   dum . da-da */
+    {"ROLL", 0xEEEE},      /* X x x x   a rumble between the kicks */
+    {"OFFBEAT", 0x4444},   /* X . x .   the & pumping against the kick */
+    {"PUSH", 0x8888},      /* X . . x   just before the beat */
+    {"REVERSE", 0x6666},   /* X x x .   the gallop backwards: da-da DUM */
+    {"HICCUP", 0x2222},    /* X x . .   right after the kick */
+    {"3-3-2", 0x4848},     /* x..x..x.x..x..x.  (the tresillo, twice a bar) */
+    {"DOTTED", 0x8248},    /* x..x..x..x..x..x  every third sixteenth, 3 against 4 */
+};
 /* the layers on the black keys, in order */
 static const uint8_t layer_bit[LAYERS] = {TEKNO_KICK, TEKNO_ROLL, TEKNO_TOMS, TEKNO_HATS, TEKNO_CLAP, TEKNO_ACID, TEKNO_GREN};
 static const char *const layer_name[LAYERS] = {"RUMBLE", "ROLL", "TOMS", "HATS", "CLAP", "ACID", "GRENADIER"};
 static const uint8_t layer_color[LAYERS] = {PX_EMBER, PX_GOLD, PX_CYAN, PX_WHITE, PX_PINK, PX_GREEN, PX_RED};
 /* the patterns, a lane each: '.' rest, upper case accented.
- * TOMS h / l high / low; HATS x / o closed / open; CLAP x a clap */
+ * TOMS h / l high / low; HATS x / o closed / open; CLAP x a clap.
+ * Each key has a pattern, and some a second (VARIANTS later in the row): pressing a lit key again swaps */
 static const char *const lane_name[LANES] = {"TOMS", "HATS", "CLAP"};
 static const uint8_t lane_layer[LANES] = {2, 3, 4};   /* (index in the layers) */
-static const struct { const char *name, *steps; } patterns[LANES][PATTERNS] = {
-    {{"RUN", "HlhlHlhlHlhlHlhl"}, {"GALLOP", "H.hlH.hlH.hlHlhl"}, {"TRIBE", "L.hlh.HlL.hlhlHh"}, {"SPARSE", "..h...l...h..hl."}},
+enum { VARIANTS = 2 * PATTERNS };
+static const struct { const char *name, *steps; } patterns[LANES][VARIANTS] = {
+    {{"RUN", "HlhlHlhlHlhlHlhl"}, {"GALLOP", "H.hlH.hlH.hlHlhl"}, {"TRIBE", "L.hlh.HlL.hlhlHh"}, {"SPARSE", "..h...l...h..hl."},
+     {0, 0}, {0, 0}, {"3-3-2", "H..l..h.H..l..h."}, {0, 0}},
     {{"16THS", "xxXxxxXxxxXxxxXx"}, {"OFFBEAT", "..O...O...O...O."}, {"GALLOP", "x.Oox.Oox.Oox.Oo"}, {"BUSY", "xxOxxxOxxxOxxxOx"}},
     {{"BACKBEAT", "....X.......X..."}, {"OFFBEAT", "..x...x...x...x."}, {"BREAKER", ".x.x..X..x.x..X."}, {"FILL", "....X.......XxXx"}},
 };
 /* the acid's lines, on the kick's note an octave up: a step is a note ('a' the root .. 'x' 23 semitones
  * up; upper case accented), '-' the last note held on, '.' a rest; '~' under a step slides it into the next */
-static const struct { const char *name, *notes, *slides; } acid_lines[PATTERNS] = {
+static const struct { const char *name, *notes, *slides; } acid_lines[VARIANTS] = {
     {"PULSE",   "a.Ma.aMaa.Ma.dMa", "..~.....~...~..."},   /* one note and its octave, hypnotic */
     {"GALLOP",  "..aM..am..aM..kD", "..~...~...~...~."},   /* on the gallop's & and a, between the kicks */
     {"SQUELCH", "A-m-a~mDa-M-k~hd", "....~~.~...~.~.~"},   /* held notes sliding up and down */
     {"MENTAL",  "aBaMabNaaBaMakbM", "...~...~...~..~."},   /* every sixteenth, the flat second grinding */
+    {"DOTTED",  "a-.M-.a-.k-.a-.m", "................"},   /* (PULSE's second) a note every dotted 8th: 3 against 4 */
+    {0, 0, 0}, {0, 0, 0}, {0, 0, 0},
 };
 static const char *const pad_name[PX_PADS] = {"RMB", "RLL", "TOM", "HAT", "CLP", "ACD", "GRN", "", "", "", ""};
 static const char *const box_name[LAYERS] = {"RM", "RL", "TM", "HT", "CP", "AC", "GR"};   /* (the screen's layer row) */
@@ -485,8 +504,8 @@ static void leds(uint32_t now)
     }
     uint32_t whites = 0;   /* each lane's pattern, the one waiting blinking */
     for (unsigned lane = 0; lane < LANES; ++lane)
-        whites |= 1U << (4U * lane + (pattern[lane] != pattern_playing[lane] && blink ? pattern_playing[lane] : pattern[lane]));
-    whites |= 1U << (12U + (acid_line != acid_line_playing && blink ? acid_line_playing : acid_line));
+        whites |= 1U << (4U * lane + (pattern[lane] != pattern_playing[lane] && blink ? pattern_playing[lane] : pattern[lane]) % PATTERNS);
+    whites |= 1U << (12U + (acid_line != acid_line_playing && blink ? acid_line_playing : acid_line) % PATTERNS);
     uint32_t all = whites | (layers << 16);
     for (unsigned s = 0; s < 16; ++s)
         if (((all ^ led_state) >> s) & 1U) fm1_led_set(PX_KEY_LED + white_keys[s], (all >> s) & 1U);
@@ -540,17 +559,20 @@ int tekno_control(const struct fm1_controls *c)
     /* white keys 1-12: the toms', hats' and clap's patterns, four each */
     for (unsigned s = 0; s < LANES * PATTERNS; ++s) {
         if (!((down >> white_keys[s]) & 1U)) continue;
-        unsigned lane = s / PATTERNS;
-        load_pattern(lane, s % PATTERNS);
+        unsigned lane = s / PATTERNS, p = s % PATTERNS;
+        if (pattern[lane] == p && patterns[lane][p + PATTERNS].name) p += PATTERNS;   /* pressed again: its second */
+        load_pattern(lane, p);
         shown_lane = lane;
         static char text[24];
-        strcpy(text, lane_name[lane]); strcat(text, " "); strcat(text, patterns[lane][s % PATTERNS].name);
+        strcpy(text, lane_name[lane]); strcat(text, " "); strcat(text, patterns[lane][p].name);
         px_flash(text, now, 500U);
         changed = 1;
     }
     /* white keys 13-16: the acid's line */
-    for (unsigned p = 0; p < PATTERNS; ++p) {
-        if (!((down >> white_keys[LANES * PATTERNS + p]) & 1U)) continue;
+    for (unsigned key = 0; key < PATTERNS; ++key) {
+        if (!((down >> white_keys[LANES * PATTERNS + key]) & 1U)) continue;
+        unsigned p = key;
+        if (acid_line == p && acid_lines[p + PATTERNS].name) p += PATTERNS;   /* pressed again: its second */
         load_acid(p);
         shown_lane = LANES;
         static char text[24];
