@@ -35,7 +35,7 @@ static const struct mode modes[PX_MODES] = {
     [PX_MODE_GBX] = {"GROOVEBOX", "4 TRACKS ONE WAY", "", gbx_control, gbx_active},
     [PX_MODE_MINI] = {"GROOVE MINI", "KICK SNARE HAT BASS", "", gbx_mini_control, gbx_mini_active},
     [PX_MODE_DECK] = {"LOOP DECK", "TOGGLE LOOPS LIVE", "", deck_control, deck_active},
-    [PX_MODE_TEKNO] = {"TEKNO", "KICK TOMS PHASER", "", tekno_control, tekno_active},
+    [PX_MODE_TEKNO] = {"TEKNO", "KICK ACID DRONE", "", tekno_control, tekno_active},
     [PX_MODE_GAME] = {"STARFALL", "CATCH STARS", "WITH THE KEYS", game_control, game_active},
 };
 
