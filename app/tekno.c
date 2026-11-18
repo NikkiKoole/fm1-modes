@@ -11,7 +11,7 @@
  *   white keys 9-12   the clap's pattern: BACKBEAT, OFFBEAT, BREAKER, FILL
  *   SELECT            pages: KICK (TUNE PUNCH DECAY DRIVE) · ROLL (FEEL DECAY CUTOFF DRIVE)
  *                     · TOMS (TUNE GAP DECAY LEVEL) · HATS (TONE CLOSED OPEN LEVEL)
- *                     · CLAP (TUNE SPREAD DECAY LEVEL)
+ *                     · CLAP (TUNE SPREAD DECAY LEVEL) · VOWEL (VOWEL MOVE RATE MIX)
  *                     · PHASER (DEPTH BARS FDBK MIX) · MIX (TEMPO LEVEL TONE CLICK)
  *   PLAY              play / stop (the first layer switched on starts it)
  *   HOME              back (it keeps playing)
@@ -29,7 +29,7 @@
 #include "cr78.h"
 #include <string.h>
 
-enum { PAGES = 7, PATTERNS = 4, FEELS = 4, LAYERS = 5, LANES = TEKNO_LANES };
+enum { PAGES = 8, PATTERNS = 4, FEELS = 4, LAYERS = 5, LANES = TEKNO_LANES };
 static const struct px_page pages[PAGES] = {
     {"KICK", {"TUNE", "PNCH", "DCAY", "DRV"}},
     {"ROLL", {"FEEL", "DCAY", "CUT", "DRV"}},
@@ -37,16 +37,17 @@ static const struct px_page pages[PAGES] = {
     {"HATS", {"TONE", "CLSD", "OPEN", "LVL"}},
     {"CLAP", {"TUNE", "SPRD", "DCAY", "LVL"}},
     {"PHASER", {"DPTH", "BARS", "FDBK", "MIX"}},
+    {"VOWEL", {"VOWL", "MOVE", "RATE", "MIX"}},
     {"MIX", {"TMPO", "KICK", "TONE", "CLK"}},
 };
 /* knob values: KICK note (MIDI) punch decay drive; ROLL feel(0-3) decay cutoff drive; TOMS note gap decay level;
  * HATS tone closed open level; CLAP tune spread decay level; PHASER depth bars(0-3) fb mix; MIX - level tone click */
-enum { P_KICK, P_ROLL, P_TOMS, P_HATS, P_CLAP, P_PHASER, P_MIX };
+enum { P_KICK, P_ROLL, P_TOMS, P_HATS, P_CLAP, P_PHASER, P_VOWEL, P_MIX };
 static int16_t knob[PAGES][4] = {{33, 60, 15, 26}, {0, 40, 45, 40}, {56, 2, 45, 45}, {50, 30, 50, 50}, {40, 40, 40, 50},
-                                 {80, 2, 50, 50}, {0, 62, 62, 30}};
-static const int16_t lo[PAGES][4] = {{28, 0, 0, 0}, {0, 0, 0, 0}, {48, 1, 0, 0}, {0, 0, 0, 0}, {0, 0, 0, 0}, {0, 0, 0, 0}, {0, 0, 0, 0}};
+                                 {80, 2, 50, 50}, {50, 60, 3, 0}, {0, 62, 62, 30}};
+static const int16_t lo[PAGES][4] = {{28, 0, 0, 0}, {0, 0, 0, 0}, {48, 1, 0, 0}, {0, 0, 0, 0}, {0, 0, 0, 0}, {0, 0, 0, 0}, {0, 0, 0, 0}, {0, 0, 0, 0}};
 static const int16_t hi[PAGES][4] = {{39, 100, 100, 100}, {3, 100, 100, 100}, {72, 12, 100, 100}, {100, 100, 100, 100},
-                                     {100, 100, 100, 100}, {100, 3, 95, 100}, {0, 100, 100, 100}};
+                                     {100, 100, 100, 100}, {100, 3, 95, 100}, {100, 100, 5, 100}, {0, 100, 100, 100}};
 /* ROLL's feels: which sixteenths after the kick get a bass note (bit 1 e, 2 &, 3 a) */
 static const struct { const char *name; uint8_t mask; } feels[FEELS] = {
     {"GALLOP", 0x0C}, {"ROLL", 0x0E}, {"OFFBEAT", 0x04}, {"PUSH", 0x08}};
@@ -150,6 +151,11 @@ static void apply(void)
     t->ph_bars_shift = (uint8_t)k[1];
     t->ph_feedback = k[2] * 327;
     t->ph_mix = k[3] * 327;
+    k = knob[P_VOWEL];
+    t->vow_center = k[0] * (TEKNO_VOWELS - 1) * 256 / 100;
+    t->vow_depth = k[1] * 32 * 256 / 100;                                               /* up to half the path each way */
+    t->vow_rate = (uint8_t)k[2];
+    t->vow_mix = k[3] * 327;
     k = knob[P_MIX];
     t->kick_level = k[1] * 300;
     t->kick_tone = lowpass(120.0f * exp2f_((float)k[2] * 0.06f));                       /* 120 Hz .. 7.7 kHz */
@@ -175,6 +181,39 @@ static void start_if_stopped(void)
 }
 unsigned tekno_active(void) { return active; }
 
+/* ---- VOWEL: tiny acid jam's formant filter (dreamengine runtime/sound.h, fx_set_formant): four band
+ * passes on the measured vowel formants (Synth Secrets' adult male), U O A E I, bandwidths narrowed
+ * as its q = 0.6. Filled once into the audio side's table of 65 places. ---- */
+static const float vowel_f[5][4] = {{300, 870, 2240, 3400}, {570, 840, 2410, 3400}, {730, 1090, 2440, 3400},
+                                    {530, 1840, 2480, 3400}, {270, 2290, 3010, 3400}};
+static const float vowel_a[5][4] = {{1.0f, 0.30f, 0.15f, 0.08f}, {1.0f, 0.40f, 0.20f, 0.10f}, {1.0f, 0.50f, 0.30f, 0.10f},
+                                    {1.0f, 0.70f, 0.30f, 0.10f}, {1.0f, 0.50f, 0.20f, 0.10f}};
+static const float vowel_bw[5][4] = {{65, 90, 130, 170}, {80, 100, 140, 180}, {90, 110, 140, 180}, {70, 100, 130, 170}, {60, 90, 120, 170}};
+static const char *vowel_name(int v)
+{
+    static const char *const names[5] = {"U", "O", "A", "E", "I"};
+    return names[(v * 4 + 12) / 100];   /* nearest of the five */
+}
+static void build_vowels(void)
+{
+    const float bw_scale = 1.0f / (1.0f + 0.6f * 3.0f);
+    for (unsigned p = 0; p < TEKNO_VOWELS; ++p) {
+        float pos = (float)p * 4.0f / (float)(TEKNO_VOWELS - 1);
+        int vi = (int)pos; if (vi > 3) vi = 3;
+        float fr = pos - (float)vi;
+        for (unsigned i = 0; i < 4; ++i) {
+            float fc = vowel_f[vi][i] * (1.0f - fr) + vowel_f[vi + 1][i] * fr;
+            float am = vowel_a[vi][i] * (1.0f - fr) + vowel_a[vi + 1][i] * fr;
+            float bw = (vowel_bw[vi][i] * (1.0f - fr) + vowel_bw[vi + 1][i] * fr) * bw_scale;
+            float kk = bw / fc; kk = kk < 0.02f ? 0.02f : kk > 0.99f ? 0.99f : kk;
+            float x = 3.1415927f * fc / 44100.0f;
+            tekno.vowel[p][0][i] = (int16_t)(2.0f * (x - x * x * x / 6.0f) * 32768.0f);
+            tekno.vowel[p][1][i] = (int16_t)(kk * 32768.0f);
+            tekno.vowel[p][2][i] = (int16_t)(am * 32767.0f);
+        }
+    }
+}
+
 /* ---- the screen ---- */
 static void value_text(unsigned pg, unsigned i, char *out)
 {
@@ -182,6 +221,9 @@ static void value_text(unsigned pg, unsigned i, char *out)
     if ((pg == P_KICK || pg == P_TOMS) && i == 0) { strcpy(out, note_name[v % 12]); px_number(v / 12 - 1, out + strlen(out)); }
     else if (pg == P_ROLL && i == 0) strcpy(out, feels[v].name);
     else if (pg == P_PHASER && i == 1) px_number(1 << v, out);
+    else if (pg == P_VOWEL && i == 0) strcpy(out, vowel_name(v));
+    else if (pg == P_VOWEL && i == 2) { if (v) px_number(1 << (v - 1), out); else strcpy(out, "BEAT"); }
+    else if (pg == P_VOWEL && i == 3 && !v) strcpy(out, "OFF");
     else if (pg == P_MIX && i == 0) px_number((int)groove_tempo_current(), out);
     else if (pg == P_KICK && i == 2 && !v) strcpy(out, "FLAT");
     else px_number(v, out);
@@ -229,9 +271,13 @@ static void draw(uint32_t now)
     strcpy(line, lane_name[shown_lane]); strcat(line, " "); strcat(line, patterns[shown_lane][pattern[shown_lane]].name);
     if (pattern[shown_lane] != pattern_playing[shown_lane] && blink) line[0] = 0;
     px_print(line, 2, 38, lane_color[shown_lane][0]);
+    if (tekno.vow_mix) {   /* VOWEL on: the vowel it is on now, large-ish, right */
+        int at = (int)tekno_vowel_at;
+        px_print_scaled(vowel_name(at * 100 / ((TEKNO_VOWELS - 1) * 256)), 70, 39, 2, PX_PINK);
+    }
     /* the phaser's sweep, and the eight bars */
-    int w = (int)((uint32_t)tekno_lfo * 76U >> 16);
-    px_rect(2, 45, 76, 3, PX_DUSK);
+    int w = (int)((uint32_t)tekno_lfo * 62U >> 16);   /* (short of the vowel's corner) */
+    px_rect(2, 45, 64, 3, PX_DUSK);
     px_rect(2 + w, 44, 2, 5, PX_PINK);
     for (unsigned b = 0; b < 8; ++b) px_rect(2 + (int)b * 5, 52, 4, 3, cr78_running && b == tekno_bar ? PX_WHITE : PX_DUSK);
     strcpy(line, ""); px_number((int)groove_tempo_current(), line); strcat(line, " BPM");
@@ -270,6 +316,7 @@ int tekno_control(const struct fm1_controls *c)
         dv_build_tables();
         if (!opened_once) {   /* the first time: the ratios, the sound, a tempo of the scene */
             for (unsigned i = 0; i < TEKNO_RATIOS; ++i) tekno.ratio[i] = (uint32_t)(exp2f_((float)i / 96.0f) * 65536.0f);
+            build_vowels();
             for (unsigned lane = 0; lane < LANES; ++lane) { load_pattern(lane, 0); pattern_playing[lane] = 0; }
             groove_tempo_edit(165 - (int)groove_tempo_current());
             opened_once = 1;

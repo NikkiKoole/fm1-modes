@@ -19,7 +19,8 @@ enum { N = FM1_BLOCK_FRAMES, ONE30 = 1 << 30, POS_MASK = 127, QUEUE = 4, STAGES 
 
 struct tekno_params tekno;
 volatile uint8_t tekno_layers, tekno_step, tekno_bar;
-volatile uint16_t tekno_lfo;
+volatile uint16_t tekno_lfo, tekno_vlfo;
+volatile int32_t tekno_vowel_at;
 volatile int32_t tekno_peak;
 
 INLINE int32_t clamp(int32_t v, int32_t lo, int32_t hi) { return v < lo ? lo : v > hi ? hi : v; }
@@ -72,6 +73,9 @@ static uint32_t rng = 0x9e3779b9u;
 static int32_t ph_st[STAGES], ph_pv[STAGES], ph_coeff = 16384;
 enum { RELEASE_K = 1072525294 /* ~20 ms, Q30 */, FADE_STEP = 250 /* ~3 ms */, SKIN_K = 1072768440 /* ~25 ms */ };
 static int32_t skin_prev;
+/* VOWEL: four state-variable band passes, the kick's sub kept aside */
+static int32_t vf_low[4], vf_band[4], vf_f[4], vf_damp[4], vf_amp[4], sub;
+enum { SUB_K = 692 /* a ~150 Hz one-pole, Q15 */, VOWEL_MAKEUP = 10 };
 enum { BASS_PITCH_K = 868323340 /* x0.81 every 16 samples: ~1.7 ms */ };
 
 INLINE uint32_t pitched(uint32_t base, int32_t pitch)
@@ -171,6 +175,8 @@ FM1_AUDIO_CODE void tekno_render(int32_t *bus)
     const int32_t hf = tekno.hat_f, hdamp = tekno.hat_damp, hlevel = tekno.hat_level;
     const int32_t cf = tekno.clap_f, cdamp = tekno.clap_damp, ctail = tekno.clap_tail_k, clevel = tekno.clap_level;
     const uint32_t cgap = tekno.clap_gap;
+    const int32_t vcenter = tekno.vow_center, vdepth = tekno.vow_depth, vmix = tekno.vow_mix;
+    const unsigned vshift = 6U - (tekno.vow_rate > 5U ? 5U : tekno.vow_rate);
     const int32_t depth = tekno.ph_depth, fb = tekno.ph_feedback, mix = tekno.ph_mix;
     const unsigned shift = 4U - (tekno.ph_bars_shift & 3U);
     int32_t peak = tekno_peak;
@@ -283,9 +289,38 @@ FM1_AUDIO_CODE void tekno_render(int32_t *bus)
             }
             t += mul15(in - t, mix);
         }
+        /* VOWEL over everything: the four bands of the vowel, the kick's sub (which no vowel band
+         * passes) put back under, mixed with the dry */
+        int32_t all = k + t;
+        sub += mul15(k - sub, SUB_K);
+        if (update) {   /* where on the path, and the bands for it (interpolated between two places) */
+            uint32_t turns = stepq << vshift;
+            tekno_vlfo = (uint16_t)(turns >> 16);
+            int32_t lfo = -dv.sine[(turns + 0x40000000U) >> (32 - DV_SINE_BITS)];
+            int32_t at = clamp(vcenter + (int32_t)(((int64_t)lfo * vdepth) >> 15), 0, (TEKNO_VOWELS - 1) * 256 - 1);
+            tekno_vowel_at = at;
+            const int16_t (*a)[4] = tekno.vowel[at >> 8], (*b)[4] = tekno.vowel[(at >> 8) + 1];
+            int32_t fr = at & 255;
+            for (unsigned j = 0; j < 4; ++j) {
+                vf_f[j] = a[0][j] + (((b[0][j] - a[0][j]) * fr) >> 8);
+                vf_damp[j] = a[1][j] + (((b[1][j] - a[1][j]) * fr) >> 8);
+                vf_amp[j] = a[2][j] + (((b[2][j] - a[2][j]) * fr) >> 8);
+            }
+        }
+        if (vmix) {
+            int32_t wet = 0;
+            for (unsigned j = 0; j < 4; ++j) {
+                vf_low[j] = clamp(vf_low[j] + mul15(vf_f[j], vf_band[j]), -(1 << 24), 1 << 24);
+                int32_t high = all - vf_low[j] - mul15(vf_damp[j], vf_band[j]);
+                vf_band[j] = clamp(vf_band[j] + mul15(vf_f[j], high), -(1 << 24), 1 << 24);
+                wet += mul15(mul15(vf_band[j], vf_damp[j]), vf_amp[j]);   /* (band x damping: a peak of 1) */
+            }
+            wet = tanh_q15(wet * VOWEL_MAKEUP) + sub;
+            all += mul15(wet - all, vmix);
+        }
         /* the bus: a soft saturator, nearly straight at normal levels, rounding stacked hits off
          * below 0.85 of full scale (the records were driven hard; this keeps the mode from clipping) */
-        int32_t out = mul15(tanh_q15(mul15(k + t, 38550 /* 1 / 0.85 */)), 27853 /* 0.85 */);
+        int32_t out = mul15(tanh_q15(mul15(all, 38550 /* 1 / 0.85 */)), 27853 /* 0.85 */);
         int32_t a = out < 0 ? -out : out;
         if (a > peak) peak = a;
         bus[i] += out;

@@ -2,7 +2,8 @@
 /* TEKNO: 90s free-party tekno (French hardtek, Czech tribe), played live. See tekno.c.
  * Its own voices (tekno_dsp.c), on the FM-1's clock: a RUMBLE KICK whose long tuned tail is the
  * bass, or a ROLL (a short kick on the beat, bass notes on the sixteenths between), two tuned TOMS
- * rolling on the sixteenths, HATS and a CLAP, and a PHASER locked to the bars over all the percussion. */
+ * rolling on the sixteenths, HATS and a CLAP, a PHASER locked to the bars over all the percussion,
+ * and a VOWEL filter (tiny acid jam's formant: four vowel bands) swept on the bars over everything. */
 #ifndef FM1_TEKNO_H
 #define FM1_TEKNO_H
 #include "fm1.h"
@@ -10,6 +11,7 @@
 enum { TEKNO_KICK = 1, TEKNO_TOMS = 2, TEKNO_ROLL = 4, TEKNO_HATS = 8, TEKNO_CLAP = 16 };   /* layers (KICK is the rumble kick) */
 enum { TEKNO_LANE_TOMS, TEKNO_LANE_HATS, TEKNO_LANE_CLAP, TEKNO_LANES };   /* the patterned layers */
 enum { TEKNO_STEPS = 16, TEKNO_RATIOS = 48 * 8 + 1 };     /* pitch ratios: 0..48 semitones in eighths */
+enum { TEKNO_VOWELS = 65 };                               /* the vowel path U O A E I in 64 steps */
 
 /* Control writes whole words; audio only reads (except the readback at the end). */
 struct tekno_params {
@@ -45,12 +47,18 @@ struct tekno_params {
     /* PHASER on the percussion: one sweep every 16 << bars_shift steps */
     volatile int32_t ph_depth, ph_feedback, ph_mix;   /* Q15 */
     volatile uint8_t ph_bars_shift;          /* 0 one bar, 1 two, 2 four, 3 eight */
+    /* VOWEL: the vowel's place (Q8, 0..64 << 8), the sweep around it (Q8 places at the LFO's peak),
+     * one sweep every 4 << rate steps (0 a beat .. 5 eight bars), the mix (Q15) */
+    volatile int32_t vow_center, vow_depth, vow_mix;
+    volatile uint8_t vow_rate;
     uint32_t ratio[TEKNO_RATIOS];            /* 2^(i/96), Q16 (control fills it once) */
+    int16_t vowel[TEKNO_VOWELS][3][4];       /* per place, the four bands' SVF f, damping, level (Q15) */
 };
 extern struct tekno_params tekno;
 /* readback for the panel (written by audio) */
 extern volatile uint8_t tekno_layers, tekno_step, tekno_bar;   /* playing; the step and bar (of 8) */
-extern volatile uint16_t tekno_lfo;                            /* the phaser's position, 0..65535 */
+extern volatile uint16_t tekno_lfo, tekno_vlfo;                /* the phaser's and the vowel's position, 0..65535 */
+extern volatile int32_t tekno_vowel_at;                        /* where the vowel is now, Q8 */
 extern volatile int32_t tekno_peak;                            /* Q15, since the panel cleared it */
 
 /* Audio ISR: one FM-1 clock step (from cr78_tick), `late` samples after the step was due; and the
