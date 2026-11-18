@@ -15,7 +15,8 @@
  *                     · TOMS (TUNE GAP DECAY LEVEL) · HATS (TONE CLOSED OPEN LEVEL)
  *                     · CLAP (TUNE SPREAD DECAY LEVEL) · ACID (CUTOFF RESO ENV DECAY)
  *                     · DEVIL (ACCENT ACCENT-DECAY SLIDE DRIVE) · GNARL (FILTER-FM SUB TRACK LEVEL)
- *                     · VOWEL (VOWEL MOVE RATE MIX)
+ *                     · SWEEP (the acid's cutoff ridden on the bars: DEPTH BARS SHAPE RESO)
+ *                     · PHASER · FLANGE (on the hats: DEPTH BARS FDBK MIX) · VOWEL (VOWEL MOVE RATE MIX)
  *                     · PHASER (DEPTH BARS FDBK MIX) · MIX (TEMPO LEVEL TONE CLICK)
  *   PLAY              play / stop (the first layer switched on starts it)
  *   HOME              back (it keeps playing)
@@ -33,7 +34,7 @@
 #include "cr78.h"
 #include <string.h>
 
-enum { PAGES = 11, PATTERNS = 4, FEELS = 4, LAYERS = 6, LANES = TEKNO_LANES };
+enum { PAGES = 13, PATTERNS = 4, FEELS = 4, LAYERS = 6, LANES = TEKNO_LANES };
 static const struct px_page pages[PAGES] = {
     {"KICK", {"TUNE", "PNCH", "DCAY", "DRV"}},
     {"ROLL", {"FEEL", "DCAY", "CUT", "DRV"}},
@@ -43,21 +44,24 @@ static const struct px_page pages[PAGES] = {
     {"ACID", {"CUT", "RES", "ENV", "DCAY"}},
     {"DEVIL", {"ACC", "ADEC", "SLID", "DRV"}},
     {"GNARL", {"FFM", "SUB", "TRK", "LVL"}},
+    {"SWEEP", {"DPTH", "BARS", "SHAP", "RES"}},
     {"PHASER", {"DPTH", "BARS", "FDBK", "MIX"}},
+    {"FLANGE", {"DPTH", "BARS", "FDBK", "MIX"}},
     {"VOWEL", {"VOWL", "MOVE", "RATE", "MIX"}},
     {"MIX", {"TMPO", "KICK", "TONE", "CLK"}},
 };
 /* knob values: KICK note (MIDI) punch decay drive; ROLL feel(0-3) decay cutoff drive; TOMS note gap decay level;
  * HATS tone closed open level; CLAP tune spread decay level; PHASER depth bars(0-3) fb mix; MIX - level tone click */
-enum { P_KICK, P_ROLL, P_TOMS, P_HATS, P_CLAP, P_ACID, P_DEVIL, P_GNARL, P_PHASER, P_VOWEL, P_MIX };
+enum { P_KICK, P_ROLL, P_TOMS, P_HATS, P_CLAP, P_ACID, P_DEVIL, P_GNARL, P_SWEEP, P_PHASER, P_FLANGE, P_VOWEL, P_MIX };
 static int16_t knob[PAGES][4] = {{33, 60, 15, 26}, {0, 40, 45, 40}, {56, 2, 45, 45}, {50, 30, 50, 50}, {40, 40, 40, 50},
-                                 {40, 75, 70, 30}, {80, 20, 30, 55}, {25, 0, 0, 60},
-                                 {80, 2, 50, 50}, {50, 60, 3, 0}, {0, 62, 62, 30}};
+                                 {40, 75, 70, 30}, {80, 20, 30, 55}, {25, 0, 0, 60}, {0, 2, 0, 30},
+                                 {80, 2, 50, 50}, {70, 3, 60, 0}, {50, 60, 3, 0}, {0, 62, 62, 30}};
 static const int16_t lo[PAGES][4] = {{28, 0, 0, 0}, {0, 0, 0, 0}, {48, 1, 0, 0}, {0, 0, 0, 0}, {0, 0, 0, 0},
-                                     {0, 0, 0, 0}, {0, 0, 0, 0}, {0, 0, 0, 0}, {0, 0, 0, 0}, {0, 0, 0, 0}, {0, 0, 0, 0}};
+                                     {0, 0, 0, 0}, {0, 0, 0, 0}, {0, 0, 0, 0}, {0, 0, 0, 0}, {0, 0, 0, 0}, {0, 0, 0, 0},
+                                     {0, 0, 0, 0}, {0, 0, 0, 0}};
 static const int16_t hi[PAGES][4] = {{39, 100, 100, 100}, {3, 100, 100, 100}, {72, 12, 100, 100}, {100, 100, 100, 100},
                                      {100, 100, 100, 100}, {100, 100, 100, 100}, {100, 100, 100, 100}, {100, 100, 100, 100},
-                                     {100, 3, 95, 100}, {100, 100, 5, 100}, {0, 100, 100, 100}};
+                                     {100, 3, 2, 100}, {100, 3, 95, 100}, {100, 3, 95, 100}, {100, 100, 5, 100}, {0, 100, 100, 100}};
 /* ROLL's feels: which sixteenths after the kick get a bass note (bit 1 e, 2 &, 3 a) */
 static const struct { const char *name; uint8_t mask; } feels[FEELS] = {
     {"GALLOP", 0x0C}, {"ROLL", 0x0E}, {"OFFBEAT", 0x04}, {"PUSH", 0x08}};
@@ -159,6 +163,9 @@ static void apply_acid(void)
     a->sub = (float)k[1] / 100.0f;
     a->track = (float)k[2] / 100.0f;
     a->level = 2.0f * (float)k[3] / 100.0f;
+    k = knob[P_SWEEP];
+    a->sweep_oct = 4.0f * (float)k[0] / 100.0f;                                           /* up to four octaves open */
+    a->sweep_res = (float)k[3] / 100.0f;
     a->base = tekno.acid_root = (uint8_t)(knob[P_KICK][0] + 12);
 }
 static void init_acid(void)   /* the fixed filters */
@@ -252,6 +259,14 @@ static void apply(void)
     t->ph_bars_shift = (uint8_t)k[1];
     t->ph_feedback = k[2] * 327;
     t->ph_mix = k[3] * 327;
+    k = knob[P_FLANGE];
+    t->fl_depth = k[0] * 327;
+    t->fl_shift = (uint8_t)k[1];
+    t->fl_feedback = k[2] * 327;
+    t->fl_mix = k[3] * 327;
+    k = knob[P_SWEEP];
+    t->asw_shift = (uint8_t)k[1];
+    t->asw_shape = (uint8_t)k[2];
     k = knob[P_VOWEL];
     t->vow_center = k[0] * (TEKNO_VOWELS - 1) * 256 / 100;
     t->vow_depth = k[1] * 32 * 256 / 100;                                               /* up to half the path each way */
@@ -322,7 +337,9 @@ static void value_text(unsigned pg, unsigned i, char *out)
     int v = knob[pg][i];
     if ((pg == P_KICK || pg == P_TOMS) && i == 0) { strcpy(out, note_name[v % 12]); px_number(v / 12 - 1, out + strlen(out)); }
     else if (pg == P_ROLL && i == 0) strcpy(out, feels[v].name);
-    else if (pg == P_PHASER && i == 1) px_number(1 << v, out);
+    else if ((pg == P_PHASER || pg == P_FLANGE || pg == P_SWEEP) && i == 1) px_number(1 << v, out);
+    else if (pg == P_SWEEP && i == 2) { static const char *const shapes[3] = {"WAVE", "RISE", "FALL"}; strcpy(out, shapes[v]); }
+    else if ((pg == P_SWEEP && i == 0) || (pg == P_FLANGE && i == 3)) { if (v) px_number(v, out); else strcpy(out, "OFF"); }
     else if (pg == P_VOWEL && i == 0) strcpy(out, vowel_name(v));
     else if (pg == P_VOWEL && i == 2) { if (v) px_number(1 << (v - 1), out); else strcpy(out, "BEAT"); }
     else if (pg == P_VOWEL && i == 3 && !v) strcpy(out, "OFF");
@@ -410,6 +427,8 @@ static void draw(uint32_t now)
     int w = (int)((uint32_t)tekno_lfo * 62U >> 16);   /* (short of the vowel's corner) */
     px_rect(2, 47, 64, 2, PX_DUSK);
     px_rect(2 + w, 46, 2, 4, PX_PINK);
+    if (tekno.fl_mix) px_rect(2 + (int)((uint32_t)tekno_flfo * 62U >> 16), 46, 2, 4, PX_WHITE);
+    if (knob[P_SWEEP][0]) px_rect(2 + (int)((uint32_t)tekno_alfo * 62U >> 16), 46, 2, 4, PX_GREEN);
     for (unsigned b = 0; b < 8; ++b) px_rect(2 + (int)b * 5, 52, 4, 3, cr78_running && b == tekno_bar ? PX_WHITE : PX_DUSK);
     strcpy(line, ""); px_number((int)groove_tempo_current(), line); strcat(line, " BPM");
     px_print(line, 46, 51, PX_SLATE);

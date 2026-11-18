@@ -19,7 +19,7 @@ enum { N = FM1_BLOCK_FRAMES, ONE30 = 1 << 30, POS_MASK = 127, QUEUE = 4, STAGES 
 
 struct tekno_params tekno;
 volatile uint8_t tekno_layers, tekno_step, tekno_bar;
-volatile uint16_t tekno_lfo, tekno_vlfo;
+volatile uint16_t tekno_lfo, tekno_vlfo, tekno_alfo, tekno_flfo;
 volatile int32_t tekno_vowel_at;
 volatile int32_t tekno_peak;
 
@@ -79,6 +79,11 @@ static int32_t skin_prev;
 /* VOWEL: four state-variable band passes, the kick's sub kept aside */
 static int32_t vf_low[4], vf_band[4], vf_f[4], vf_damp[4], vf_amp[4], sub;
 enum { SUB_K = 692 /* a ~150 Hz one-pole, Q15 */, VOWEL_MAKEUP = 10 };
+/* FLANGE: the hats into a short delay line (int16, ~5.8 ms), read back between two samples */
+enum { FL_LEN = 256, FL_MIN = 9 << 8 /* 0.2 ms, Q8 samples */, FL_RANGE = 170 << 8 /* up to ~4 ms more */ };
+static int16_t fl_buf[FL_LEN];
+static unsigned fl_w;
+static int32_t fl_d = FL_MIN, fl_target = FL_MIN;
 enum { BASS_PITCH_K = 868323340 /* x0.81 every 16 samples: ~1.7 ms */ };
 
 INLINE uint32_t pitched(uint32_t base, int32_t pitch)
@@ -189,6 +194,9 @@ FM1_AUDIO_CODE void tekno_render(int32_t *bus)
     const int32_t hf = tekno.hat_f, hdamp = tekno.hat_damp, hlevel = tekno.hat_level;
     const int32_t cf = tekno.clap_f, cdamp = tekno.clap_damp, ctail = tekno.clap_tail_k, clevel = tekno.clap_level;
     const uint32_t cgap = tekno.clap_gap;
+    const int32_t fdepth = tekno.fl_depth, ffb = tekno.fl_feedback, fmix = tekno.fl_mix;
+    const unsigned fshift = 4U - (tekno.fl_shift & 3U), ashift = 4U - (tekno.asw_shift & 3U), ashape = tekno.asw_shape;
+    const unsigned sweeping = tekno.acid.sweep_oct != 0.0f;   /* (DEPTH 0: off, RES too) */
     const int32_t vcenter = tekno.vow_center, vdepth = tekno.vow_depth, vmix = tekno.vow_mix;
     const unsigned vshift = 6U - (tekno.vow_rate > 5U ? 5U : tekno.vow_rate);
     const int32_t depth = tekno.ph_depth, fb = tekno.ph_feedback, mix = tekno.ph_mix;
@@ -271,13 +279,30 @@ FM1_AUDIO_CODE void tekno_render(int32_t *bus)
             }
         }
         t = mul15(t, tlevel);
-        /* HATS */
+        /* HATS, through the FLANGE: the delay swept between 0.2 ms and up to ~4 ms, on the bars */
+        int32_t h = 0;
         if (hat.on) {
             int32_t x = svf(&hat, (int32_t)(noise() >> 16) - 32768, hf, hdamp, 0);
             hat.env = mul30(hat.env, hat.k);
             if (hat.env < (1 << 16)) hat.on = 0;
-            t += mul15(mul15(x, hat.env >> 15), hlevel);
+            h = mul15(mul15(x, hat.env >> 15), hlevel);
         }
+        if (fmix) {
+            if (update) {
+                uint32_t turns = stepq << fshift;
+                int32_t up = (32768 - dv.sine[(turns + 0x40000000U) >> (32 - DV_SINE_BITS)]) >> 1;   /* (1 - cos) / 2: short at the loop's start */
+                tekno_flfo = (uint16_t)(up << 1);
+                fl_target = FL_MIN + mul15(mul15(up, fdepth), FL_RANGE);
+            }
+            fl_d += (fl_target - fl_d) >> 6;   /* glide there, no zipper */
+            unsigned back = (unsigned)fl_d >> 8, fr = (unsigned)fl_d & 255U;
+            int32_t a0 = fl_buf[(fl_w - back) & (FL_LEN - 1U)], a1 = fl_buf[(fl_w - back - 1U) & (FL_LEN - 1U)];
+            int32_t del = a0 + (((a1 - a0) * (int32_t)fr) >> 8);
+            fl_buf[fl_w] = (int16_t)clamp(h + mul15(del, ffb), -32768, 32767);
+            fl_w = (fl_w + 1U) & (FL_LEN - 1U);
+            h += mul15(del, fmix);
+        }
+        t += h;
         /* CLAP: three bursts `gap` apart, the last one rings on */
         if (clap.on) {
             uint32_t ct = clap.t++;
@@ -293,6 +318,14 @@ FM1_AUDIO_CODE void tekno_render(int32_t *bus)
             tekno_lfo = (uint16_t)(turns >> 16);
             int32_t lfo = -dv.sine[(turns + 0x40000000U) >> (32 - DV_SINE_BITS)];   /* -cos: lowest at the loop's start */
             ph_coeff = 16384 + mul15(mul15(lfo, depth), 15565);
+        }
+        if (update) {   /* SWEEP: where the acid's ride is (0 closed .. 1 open; 0 when it is off) */
+            uint32_t turns = stepq << ashift;
+            int32_t u = !sweeping ? 0 : ashape == 1 ? (int32_t)(turns >> 17)                     /* rising */
+                      : ashape == 2 ? 32767 - (int32_t)(turns >> 17)             /* falling */
+                      : (32768 - dv.sine[(turns + 0x40000000U) >> (32 - DV_SINE_BITS)]) >> 1;   /* up and down */
+            tekno_alfo = (uint16_t)(u << 1);
+            tekno_acid_sweep((float)u * (1.0f / 32768.0f));
         }
         stepq += rate_q24;
         if (depth || mix) {

@@ -10,6 +10,7 @@
  *   - SLIDE time
  *   - FILTER FM: the oscillator sweeps the filter at audio rate (the Devil Fish's growl)
  *   - filter TRACKING (the cutoff follows the note)
+ *   - SWEEP: the cutoff (and some resonance) ridden on the bars, as a hand on the knob would
  *   - a SUB square an octave down, into the filter with the saw (not a Devil Fish thing: the
  *     sub-osc of dreamengine's acid303.h, for weight)
  * Float (the FM-1 has a hardware FPU; the stock 303 is float too). Every helper is forced inline so
@@ -69,7 +70,15 @@ static struct {
     struct svf click, notch, drive_pre, drive_post;
     struct lp down[2];
     float ap_x, ap_y;
-} v = {.idle = 1};
+    float cut_mul, res_add;   /* SWEEP, now */
+} v = {.idle = 1, .cut_mul = 1.0f};
+
+FM1_AUDIO_CODE void tekno_acid_sweep(float u)
+{
+    const struct tekno_acid *a = &tekno.acid;
+    v.cut_mul = fexp2(a->sweep_oct * u);
+    v.res_add = a->sweep_res * u;
+}
 
 FM1_AUDIO_CODE void tekno_acid_note(int note, int accent, int slide)
 {
@@ -95,8 +104,9 @@ static FM1_AUDIO_CODE void ladder_coeff(float hz)
     float f = fclamp(hz, 200.0f, 20000.0f) * (0.7071067811865f / 88200.0f);
     v.b0 = (0.00045522346f + 6.1922189f * f) / (1.0f + 12.358354f * f + 4.4156345f * f * f);
     float k = f * (f * (f * (f * (f * (f + 7198.6997f) - 5837.7917f) - 476.47308f) + 614.95611f) + 213.87126f) + 16.998792f;
-    v.comp = 2.0f * ((k / 17.0f - 1.0f) * a->reso + 1.0f) * (1.0f + a->reso);
-    v.k = k * a->reso;
+    float reso = a->reso + v.res_add * (1.0f - a->reso);
+    v.comp = 2.0f * ((k / 17.0f - 1.0f) * reso + 1.0f) * (1.0f + reso);
+    v.k = k * reso;
 }
 
 /* one sample, Q15 (added to the mix by the caller) */
@@ -109,7 +119,7 @@ FM1_AUDIO_CODE int32_t tekno_acid_sample(void)
     v.pitch = v.frequency + a->slide * (v.pitch - v.frequency);
     float env = v.env; v.env *= decay;
     v.rc1 = env; v.rc2 += (accent > 0.0f ? env - v.rc2 : -v.rc2) * 0.001510574f;
-    if (!(v.control_phase++ & 3U)) ladder_coeff(v.cutoff * fexp2(a->env_scale * (v.rc1 - a->env_offset) + accent * v.rc2));
+    if (!(v.control_phase++ & 3U)) ladder_coeff(v.cutoff * v.cut_mul * fexp2(a->env_scale * (v.rc1 - a->env_offset) + accent * v.rc2));
     float amp = v.amp; v.amp *= v.gate ? 0.999981565f : v.release;
     if (v.gate) amp += (0.45f + 4.0f * accent) * env;
     amp = svf_run(&v.click, &a->click, amp, 0);

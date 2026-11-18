@@ -24,6 +24,7 @@ struct tekno_acid {
     float release, release_acc;                  /* the amp's release after the gate (plain, accented) */
     float ffm, sub, track, level;                /* FILTER FM depth; the sub's level; TRACK 0..1; output */
     int base;                                    /* the note TRACK is centred on */
+    float sweep_oct, sweep_res;                  /* SWEEP: octaves opened at its top; resonance added (0..1 of the way to full) */
     float drive_gain, drive_high;                /* RAT (gain 0: off) */
     struct tekno_svf click, notch, drive_pre, drive_post;
     float pre_a, fb_a, post_a, drive_dc_a, b0max;
@@ -68,6 +69,12 @@ struct tekno_params {
      * one sweep every 4 << rate steps (0 a beat .. 5 eight bars), the mix (Q15) */
     volatile int32_t vow_center, vow_depth, vow_mix;
     volatile uint8_t vow_rate;
+    /* SWEEP: the acid's cutoff ridden on the bars (amounts in `acid`), one ride every 16 << shift steps;
+     * shape 0 up and down, 1 rising (snapping shut at the loop), 2 falling */
+    volatile uint8_t asw_shift, asw_shape;
+    /* FLANGE on the hats: a short delay swept on the bars (one sweep every 16 << shift steps) */
+    volatile int32_t fl_depth, fl_feedback, fl_mix;   /* Q15 */
+    volatile uint8_t fl_shift;
     /* ACID: its bar of steps (copied in at the next bar, like a lane), the note step 0 is on */
     volatile uint16_t acid_want[TEKNO_STEPS];
     volatile uint8_t acid_dirty;
@@ -80,6 +87,7 @@ extern struct tekno_params tekno;
 /* readback for the panel (written by audio) */
 extern volatile uint8_t tekno_layers, tekno_step, tekno_bar;   /* playing; the step and bar (of 8) */
 extern volatile uint16_t tekno_lfo, tekno_vlfo;                /* the phaser's and the vowel's position, 0..65535 */
+extern volatile uint16_t tekno_alfo, tekno_flfo;               /* the acid sweep's and the flanger's (0 .. 65535 = closed .. open / short .. long) */
 extern volatile int32_t tekno_vowel_at;                        /* where the vowel is now, Q8 */
 extern volatile int32_t tekno_peak;                            /* Q15, since the panel cleared it */
 
@@ -92,6 +100,7 @@ FM1_AUDIO_CODE void tekno_render(int32_t *bus);
 FM1_AUDIO_CODE void tekno_acid_note(int note, int accent, int slide);
 FM1_AUDIO_CODE void tekno_acid_off(void);
 FM1_AUDIO_CODE int32_t tekno_acid_sample(void);
+FM1_AUDIO_CODE void tekno_acid_sweep(float u);   /* where the SWEEP is, 0..1 */
 FM1_AUDIO_CODE unsigned tekno_acid_sounding(void);
 
 int tekno_control(const struct fm1_controls *controls);
