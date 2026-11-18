@@ -36,7 +36,7 @@
  * TODO (talked about, not built yet):
  *   - THE BUTTON PLAN (TEKNO uses only HOME, PLAY, SELECT, KNOB 1-4 and the keys; the rest is free:
  *     every button and the ALGO and PRESETS encoders).
- *     After GROOVEBOX-MANUAL.md's grammar (hold = scope, GLO = the verbs, hold FX = pads):
+ *     After docs/GROOVEBOX-MANUAL.md's grammar (hold = scope, GLO = the verbs, hold FX = pads):
  *       PRESETS encoder   scenes: turn to pick, in on the next bar
  *       ALGO encoder      KIT: the sub-genre kit (tribe, mental / acidcore, hard groove: the kick's
  *                         model and the tempo range). Alternative: the generator's style for GEN
@@ -80,7 +80,7 @@
  *   - fuller CLAPS: they sound thin next to the references; more noise body, a bit of room
  *   - MORE THAN 16 PATTERNS: the white keys are full (4 lanes x 4) and "press again" only gives
  *     each key a second. Leaning to: HOLD a layer's black key and the 16 white keys pick ITS
- *     pattern (16 per instrument, all seven layers; "hold = scope" as in GROOVEBOX-MANUAL.md).
+ *     pattern (16 per instrument, all seven layers; "hold = scope" as in docs/GROOVEBOX-MANUAL.md).
  *     Unheld, the white keys come free (for DROP/BUILD, mutes, fills). Keep "press again" too.
  *     (Also weighed: a PATTERNS page of knobs, one per lane; banks flipped by a button.)
  *   - SHOW WHAT EACH EFFECT IS ON: the screen doesn't say it. SWEEP is the acid's, MOVE

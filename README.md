@@ -1,3 +1,50 @@
+# FM-1 modes (on M-VAVE's FM1 Open)
+
+Extra modes for the **M-VAVE FM-1**, built on M-VAVE's official open kit (FM1 Open V14, the rest of
+this page). M-VAVE's own FM engine and sequencer stay as they are; these modes sit beside them in
+`app/` and take over the panel while they are open.
+
+> **Status:** developed and tested in the browser emulator only. None of it has run on a real FM-1 yet.
+
+## The modes
+
+Open the launcher with **HOME + ARP**, turn **KNOB 1** to a mode, press **OCT+** to open it, **HOME** to go back.
+
+| Mode | What it is |
+|---|---|
+| **TEKNO** | 90s free-party tekno (French hardtek, Czech tribe), played live: a rumble kick or a rolling kick + bass, tuned toms, hats, clap, an acid 303 with Devil Fish controls (Open303), a GRENADIER triple-filterbank drone, and effects locked to the bars (phaser, flanger, acid sweep, vowel filter). Seven layers on the black keys, patterns on the white keys. Its header comment in `app/tekno.c` has the controls and the to-do list. |
+| **CR-78** | a CR-78 drum machine, 16 steps, ratchets and swing |
+| **RHYTHM BOX** | 101 factory rhythms on TR-77 and Side Man kits |
+| **BASS PLAYER** | follows the chords you play and writes bass lines to them |
+| **MY SYNTH** | a six-voice subtractive synth on the keys |
+| **FX** | a shared effects rack (drive, crush, EQ, chorus / phaser / flanger, spring reverb, a kick duck) for the modes |
+| **LOOP DECK** | banks of loops you toggle live |
+| **GROOVEBOX / GROOVE MINI** | an experiment: four tracks with one set of rules after Elektron and Roland's TR boxes (`docs/GROOVEBOX-MANUAL.md`) |
+| **STARFALL** | a little game: catch the stars with the keys |
+
+Many sounds are ports from the author's own fantasy console *dreamengine*. Third-party code is listed in
+[THIRD_PARTY.md](THIRD_PARTY.md); TEKNO's acid voice adapts Open303 (Robin Schmidt, MIT) as in the kit's own 303.
+
+## Building the browser emulator on a Mac
+
+M-VAVE's build scripts are for Windows (`build.bat`). `tools/build_web_mac.py` builds the browser emulator
+on macOS (or Linux):
+
+1. Download [WASI SDK 27](https://github.com/WebAssembly/wasi-sdk/releases) and unpack it to
+   `build/tools/wasi-sdk-27.0-arm64-macos` (or point `FM1_WASI_SDK` at it).
+2. `python3 tools/build_web_mac.py`
+3. Serve it: `python3 -m http.server 8765 -d build/preview` and open http://127.0.0.1:8765.
+   Click a piano key once to start the sound.
+
+The firmware for the device itself still needs M-VAVE's JieLi toolchain on Windows (`build.bat`).
+
+## Notes
+
+- `LAB-NOTES.md`: notes on the other FM-1 firmwares around (fm1-base, Felucca, Skiff, CHOPPAH, ...).
+- `docs/GROOVEBOX-MANUAL.md`: the GROOVEBOX's panel rules, also the grammar the newer modes follow.
+
+---
+
 # FM1 Open V14
 
 English · [简体中文](README.zh-CN.md)

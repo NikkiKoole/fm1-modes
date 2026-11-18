@@ -1,7 +1,7 @@
 # Lab notes
 
 Findings from looking around the FM-1 firmware scene, next to our own work on this branch (`my-modes`).
-The lab page that runs the emulators side by side: `~/Projects/mvave/index.html` (`serve.sh`, port 8800).
+(A lab page outside this repository runs the emulators side by side.)
 
 ## The firmware family tree (17 Nov 2026)
 
@@ -27,7 +27,7 @@ M-VAVE's SDK gives the keys as on/off bits only (`keys` in `sdk/include/fm1.h`),
 velocity. **fm1-base reads velocity and pressure from the keys** (`#define APP_TOUCH` in its app.h: `touch_on`,
 `touch_poll`, `touch_keys`, `touch_vel`, `touch_pressure`, lib/touch.h). The hardware can do it; our SDK doesn't
 expose it. Worth reading how fm1-base does it (`choppah/base/lib/touch.*`) before deciding how live accents work
-(GROOVEBOX-MANUAL.md, open question 2).
+(docs/GROOVEBOX-MANUAL.md, open question 2).
 
 ## Firmwares worth knowing
 
@@ -42,7 +42,7 @@ expose it. Worth reading how fm1-base does it (`choppah/base/lib/touch.*`) befor
 
 ## Where our own experiments stand
 
-- GROOVEBOX / GROOVE MINI: the panel's rules in `~/Projects/mvave/GROOVEBOX-MANUAL.md`; called a good experiment,
+- GROOVEBOX / GROOVE MINI: the panel's rules in `docs/GROOVEBOX-MANUAL.md`; called a good experiment,
   parked (Skiff does the groovebox well).
 - LOOP DECK: banks of loops that always fit (an idea from Reddit: a DJ toy's banks of pads). Possibly still worth it,
   since no firmware does it; check Skiff's scenes / PERFORM layer first.

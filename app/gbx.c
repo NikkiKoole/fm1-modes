@@ -1,5 +1,5 @@
 /* SPDX-License-Identifier: GPL-3.0-only WITH GPL-3.0-linking-exception */
-/* GROOVEBOX and GROOVE MINI panel modes. The rules are GROOVEBOX-MANUAL.md; in short:
+/* GROOVEBOX and GROOVE MINI panel modes. The rules are docs/GROOVEBOX-MANUAL.md; in short:
  *
  *   LAUNCHER  --ALGORITHM-->  OVERVIEW  --ALGORITHM-->  TRACK (DRUMS BASS KEYS LEAD; MINI: DRUMS BASS)
  *             <----HOME----             <----HOME----

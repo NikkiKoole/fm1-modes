@@ -1,6 +1,6 @@
 /* SPDX-License-Identifier: GPL-3.0-only WITH GPL-3.0-linking-exception */
 /* GROOVEBOX: four tracks (DRUMS BASS KEYS LEAD), one way of doing things. The panel's rules are
- * GROOVEBOX-MANUAL.md. GROOVE MINI is the same instrument cut down to DRUMS (kick, snare, hat) and BASS.
+ * docs/GROOVEBOX-MANUAL.md. GROOVE MINI is the same instrument cut down to DRUMS (kick, snare, hat) and BASS.
  * DRUMS: the CR-78's voices and sequencer. BASS: the drum engine's bass voice. KEYS: chords on MY SYNTH.
  * LEAD: one mono voice of MY SYNTH's engine with its own sound, gliding on slides. */
 #ifndef FM1_GBX_H
