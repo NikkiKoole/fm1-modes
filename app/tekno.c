@@ -34,6 +34,20 @@
  * No swing: the references measured dead straight (the bounce is in which sixteenths are hit).
  *
  * TODO (talked about, not built yet):
+ *   - SCENES on PRESETS (the biggest win: from one song to a set of songs): a scene is the whole
+ *     state (layers, patterns, every knob, tempo), recalled on the next bar. Factory scenes that are
+ *     really different tracks (rolling-tom Desert Planet, rumble Axe Grinder, mental acid at 180,
+ *     a slow Grenadier drone-tribe, ...) and the user's own saved to Flash (as GROOVEBOX's SAVE).
+ *     Today nothing is kept: leaving the mode or powering off starts from the default again
+ *   - GENERATORS: "a new one" for the acid line (as X0X's TB-3PO), the toms' pattern, the ROLL
+ *     feel; always in key, by the genre's rules (gallop, offbeats, 3-3-2). With hold-to-pick: hold
+ *     a layer key, press a GEN key
+ *   - KEY AND SCALE: the kick's note is the key already; add a scale for the acid (minor,
+ *     phrygian with its flat second, chromatic for mental)
+ *   - ARRANGEMENT: live, DROP/BUILD + scenes is a set's shape; later maybe chained scenes over N
+ *     bars (intro 16, groove 32, break 8, drop 32) for hands-off songs
+ *   - KITS for the sub-genres: other kick models and tempo ranges (tribe 160-175, mental / acidcore
+ *     180-200, a slower hard groove 140)
  *   - DROP / BUILD: hold a key to cut the kick and let the rest ride; a roll doubling up
  *     (8 > 16 > 32 a bar) with the filter rising; let go to slam back in on the bar
  *   - DJ FILTER over the whole mix: one knob, low pass to the left, high pass to the right
