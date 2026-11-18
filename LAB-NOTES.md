@@ -21,6 +21,11 @@ M-VAVE fm1_open SDK (the official kit: the sealed stock engine + room for app co
 - **fm1-base**: https://github.com/charlesvestal/fm1-base: screen, drawing and fonts, keys and LEDs, audio, MIDI over
   USB and TRS, storage, a screen reader; optional Bluetooth MIDI, Bluetooth audio (A2DP), WiFi, USB audio.
 
+## The panel's numbering
+
+`PANEL.md` maps every control as this kit numbers it (confirmed from `sdk/Simulator.js`). fm1-base / Felucca's
+`plat.h` numbers them differently (its buttons start at FX): don't copy indices across.
+
 ## The keys can do velocity and pressure
 
 M-VAVE's SDK gives the keys as on/off bits only (`keys` in `sdk/include/fm1.h`), so we took the FM-1 to have no

@@ -40,6 +40,7 @@ The firmware for the device itself still needs M-VAVE's JieLi toolchain on Windo
 
 ## Notes
 
+- `PANEL.md`: every key, button, encoder and LED as the SDK numbers it.
 - `LAB-NOTES.md`: notes on the other FM-1 firmwares around (fm1-base, Felucca, Skiff, CHOPPAH, ...).
 - `docs/GROOVEBOX-MANUAL.md`: the GROOVEBOX's panel rules, also the grammar the newer modes follow.
 
