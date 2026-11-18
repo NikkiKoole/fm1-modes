@@ -116,6 +116,11 @@ struct tekno_params {
     volatile uint8_t perc_dirty;
     struct tekno_perc_voice perc[2];
     volatile int32_t perc_ring, perc_level, perc_drop_k;   /* Q15; Q15; Q30 every 16 samples */
+    /* ECHO: a dub delay (at half rate), `steps` sixteenths long; sends from CLAP TOMS ACID PERC (never the kick) */
+    volatile uint8_t echo_steps;
+    volatile int32_t echo_fb, echo_tone, echo_mix, echo_send[4];   /* Q15 */
+    /* PUMP: on each kick everything but the kick and ROLL's bass dips by `amount`, swelling back by `k` */
+    volatile int32_t pump_amount, pump_k;                         /* Q15; Q30 a sample */
     uint32_t ratio[TEKNO_RATIOS];            /* 2^(i/96), Q16 (control fills it once) */
     int16_t vowel[TEKNO_VOWELS][3][4];       /* per place, the four bands' SVF f, damping, level (Q15) */
 };

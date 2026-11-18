@@ -98,6 +98,12 @@ INLINE uint32_t pitched(uint32_t base, int32_t pitch)
     int32_t i = clamp(pitch >> 13, 0, TEKNO_RATIOS - 1);
     return (uint32_t)(((uint64_t)base * tekno.ratio[i]) >> 16);
 }
+/* ECHO: an int16 line at half rate (22 kHz: dubby, and half the RAM): 8192 places, ~0.37 s */
+enum { ECHO_LEN = 8192 };
+static int16_t echo_buf[ECHO_LEN];
+static unsigned echo_w, echo_half;
+static int32_t echo_acc, echo_lp, echo_out, echo_tail;
+static int32_t pump_env;   /* PUMP, Q30 */
 static FM1_AUDIO_CODE void kick_hit(uint32_t delay, unsigned roll)
 {
     struct drum *old = &kick[kick_last];
@@ -111,6 +117,7 @@ static FM1_AUDIO_CODE void kick_hit(uint32_t delay, unsigned roll)
     k->gate = !rate_q24 ? 44100U : roll ? (uint32_t)((3ULL << 22) / rate_q24) : (uint32_t)((4ULL << 24) / rate_q24) + 88U;
     click_env = tekno.kick_click << 15;
     fx_kick(FX_KEY_CR78, delay);                    /* the duck and the PMP pad hear it */
+    if (tekno.pump_amount) pump_env = tekno.pump_amount << 15;   /* PUMP: the rest dips */
 }
 /* the ROLL's bass: a saw through a low pass and a drive, a quick drop onto the note, a short decay */
 static struct { uint32_t phase, inc, base; int32_t pitch, env, low, band, x1, y1; uint8_t on; } bass;
@@ -250,7 +257,7 @@ static FM1_AUDIO_CODE void fire(unsigned p, uint32_t delay)
 FM1_AUDIO_CODE void tekno_render(int32_t *bus)
 {
     if (!dv.ready || !tekno.ratio[0]) return;
-    unsigned any = queued || tekno_acid_sounding() || tekno_gren_sounding() || kick[0].on || kick[1].on || pv[0].on || pv[1].on || tom[0].on || tom[1].on || bass.on || hat.on || clap.on;
+    unsigned any = echo_tail > 0 || pump_env > (1 << 16) || queued || tekno_acid_sounding() || tekno_gren_sounding() || kick[0].on || kick[1].on || pv[0].on || pv[1].on || tom[0].on || tom[1].on || bass.on || hat.on || clap.on;
     if (any) quiet = 0; else if (quiet < 400U) ++quiet;
     if (quiet >= 400U) { stepq += rate_q24 * N; now += N; return; }   /* ~1 s silent: rest */
     const int32_t dk = tekno.kick_decay_k, pk = tekno.kick_pitch_k, tk = tekno.tom_decay_k, tpk = tekno.tom_pitch_k;
@@ -267,6 +274,12 @@ FM1_AUDIO_CODE void tekno_render(int32_t *bus)
     const int32_t fdepth = tekno.fl_depth, ffb = tekno.fl_feedback, fmix = tekno.fl_mix;
     const unsigned fshift = 4U - (tekno.fl_shift & 3U), ashift = 4U - (tekno.asw_shift & 3U), ashape = tekno.asw_shape;
     const unsigned gshift = 7U - (tekno.gren_rate > 6U ? 6U : tekno.gren_rate);
+    const int32_t es_clap = tekno.echo_send[0], es_toms = tekno.echo_send[1], es_acid = tekno.echo_send[2], es_perc = tekno.echo_send[3];
+    const int32_t emix = tekno.echo_mix, efb = tekno.echo_fb, etone = tekno.echo_tone, pumpk = tekno.pump_k;
+    const unsigned echo_on = emix && (es_clap | es_toms | es_acid | es_perc);
+    uint32_t edelay = rate_q24 ? (uint32_t)((((1ULL << 24) / rate_q24) * tekno.echo_steps) >> 1) : 2756U;   /* (one division a block) */
+    if (edelay > ECHO_LEN - 1U) edelay = ECHO_LEN - 1U;
+    if (edelay < 1U) edelay = 1U;
     const unsigned sweeping = tekno.acid.sweep_oct != 0.0f;   /* (DEPTH 0: off, RES too) */
     const int32_t vcenter = tekno.vow_center, vdepth = tekno.vow_depth, vmix = tekno.vow_mix;
     const unsigned vshift = 6U - (tekno.vow_rate > 5U ? 5U : tekno.vow_rate);
@@ -351,6 +364,7 @@ FM1_AUDIO_CODE void tekno_render(int32_t *bus)
             }
         }
         t = mul15(t, tlevel);
+        int32_t tap_toms = t, tap_perc = 0, tap_clap = 0;   /* (the ECHO's sends) */
         /* PERC: the pitch MOD every 16 samples, then the two oscillators, A ring-modulated by B */
         if (pv[0].on || pv[1].on) {
             if (update) for (unsigned v = 0; v < 2; ++v) {
@@ -382,7 +396,8 @@ FM1_AUDIO_CODE void tekno_render(int32_t *bus)
                 pv[1].env = mul30(pv[1].env, tekno.perc[1].decay_k);
                 if (pv[1].env < (1 << 16)) pv[1].on = 0;
             }
-            t += mul15(y, tekno.perc_level);
+            tap_perc = mul15(y, tekno.perc_level);
+            t += tap_perc;
         }
         /* HATS, through the FLANGE: the delay swept between 0.2 ms and up to ~4 ms, on the bars */
         int32_t h = 0;
@@ -428,7 +443,8 @@ FM1_AUDIO_CODE void tekno_render(int32_t *bus)
             int32_t burst = clap.band + mul15(high, cair) + mul15(clap.bband, cbody);
             int32_t y = mul15(burst, clap.benv >> 15) + mul15(clap.rband, clap.renv >> 15);
             if (cdrive) y = mul15(tanh_q15(clamp((int32_t)(((int64_t)y * cdrive) >> 12), -262143, 262143)), cdnorm);
-            t += mul15(y, clevel);
+            tap_clap = mul15(y, clevel);
+            t += tap_clap;
         }
         /* PHASER over the percussion: six allpasses swept once every 16 << bars steps, locked to the bar */
         if (update) {
@@ -464,7 +480,27 @@ FM1_AUDIO_CODE void tekno_render(int32_t *bus)
          * passes) put back under, mixed with the dry */
         /* ACID */
         if (acid_gate && !--acid_gate) tekno_acid_off();
-        int32_t all = k + t + tekno_acid_sample() + tekno_gren_sample();
+        int32_t acid = tekno_acid_sample();
+        int32_t rest = t + acid + tekno_gren_sample();
+        if (echo_on || echo_tail > 0) {   /* ECHO: the sends in at half rate; each repeat darker (TONE), fed back by FDBK */
+            int32_t in = mul15(tap_clap, es_clap) + mul15(tap_toms, es_toms) + mul15(acid, es_acid) + mul15(tap_perc, es_perc);
+            if (in) echo_tail = 44100 * 6; else if (echo_tail > 0) --echo_tail;
+            echo_acc += in;
+            if ((echo_half ^= 1U) == 0) {
+                int32_t r = echo_buf[(echo_w - edelay) & (ECHO_LEN - 1U)];
+                echo_lp += mul15(r - echo_lp, etone);
+                echo_buf[echo_w] = (int16_t)clamp((echo_acc >> 1) + mul15(echo_lp, efb), -32768, 32767);
+                echo_w = (echo_w + 1U) & (ECHO_LEN - 1U);
+                echo_acc = 0; echo_out = echo_lp;
+            }
+            rest += mul15(echo_out, emix);
+        }
+        if (pump_env) {   /* PUMP: everything but the kick and ROLL's bass, dipped on the kick */
+            rest = mul15(rest, 32768 - (pump_env >> 15));
+            pump_env = mul30(pump_env, pumpk);
+            if (pump_env < (1 << 12)) pump_env = 0;
+        }
+        int32_t all = k + rest;
         sub += mul15(k - sub, SUB_K);
         if (update) {   /* where on the path, and the bands for it (interpolated between two places) */
             uint32_t turns = stepq << vshift;
