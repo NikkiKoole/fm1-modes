@@ -59,6 +59,7 @@ static const char *const wave_name[3] = {"SINE", "TRI", "SQR"};
 /* ---- the pads (FX held), the same eleven everywhere ---- */
 enum { P_R16, P_R32, P_HLF, P_REV, P_LPF, P_HPF, P_CRS, P_GAT, P_DRV, P_PMP, P_SWP };
 static const char *const pad_name[PX_PADS] = {"R16", "R32", "HLF", "REV", "LPF", "HPF", "CRS", "GAT", "DRV", "PMP", "SWP"};
+static const char *const pad_short[PX_PADS] = {"16", "32", "HF", "RV", "LP", "HP", "CR", "GT", "DR", "PM", "SW"};   /* (the strip: two letters) */
 enum { SCOPES = TRACKS + 1 };   /* [0] the mix, [1 + t] track t */
 static uint32_t pads_held[SCOPES], pads_latched[SCOPES];
 
@@ -276,12 +277,12 @@ static uint32_t led_buttons;
 static unsigned scope(void) { return zoom == OVERVIEW ? 0U : 1U + (unsigned)zoom; }
 static const char *const *key_row(void)
 {
-    static const char *const lanes[PX_PADS] = {"DRM", "BAS", "KEY", "LED"};
-    static const char *const mini_lanes[PX_PADS] = {"DRM", "BAS"};
+    static const char *const lanes[PX_PADS] = {"DR", "BS", "KY", "LD"};   /* (the strip: two letters) */
+    static const char *const mini_lanes[PX_PADS] = {"DR", "BS"};
     static const char *const none[PX_PADS] = {""};
     static char notes[PX_PADS][6];
     static const char *note_row[PX_PADS];
-    if (fx_held) return pad_name;
+    if (fx_held) return pad_short;
     if (zoom == OVERVIEW) return mini ? mini_lanes : lanes;
     if (play_layer) return none;   /* PLAY: the white keys play; the black keys rest */
     if (zoom == T_DRUMS) {

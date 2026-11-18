@@ -240,6 +240,7 @@ static const char *const scene_name[4] = {"INTRO", "VERSE", "FULL", "BREAK"};
 static const uint8_t white_keys[16] = {0, 2, 4, 6, 7, 9, 11, 12, 14, 16, 18, 19, 21, 23, 24, 26};
 static const uint8_t black_keys[PX_PADS] = {1, 3, 5, 8, 10, 13, 15, 17, 20, 22, 25};
 static const char *const pad_name[PX_PADS] = {"R16", "R32", "HLF", "REV", "LPF", "HPF", "CRS", "GAT", "DRV", "PMP", "SWP"};
+static const char *const pad_short[PX_PADS] = {"16", "32", "HF", "RV", "LP", "HP", "CR", "GT", "DR", "PM", "SW"};   /* (the strip: two letters) */
 static const char *const part_name[PARTS] = {"BEAT", "BASS", "CHRD", "MEL"};
 static const uint8_t part_color[PARTS] = {PX_EMBER, PX_GREEN, PX_CYAN, PX_PINK};
 static int clamp(int v, int lo, int hi) { return v < lo ? lo : v > hi ? hi : v; }
@@ -347,7 +348,7 @@ static void draw(uint32_t now)
     if (knob[1]) px_number(knob[1], v[1]); else strcpy(v[1], "OFF");
     px_number(knob[2], v[2]); px_number((int)groove_tempo_current(), v[3]);
     px_cls(PX_NIGHT);
-    px_chrome_pads("DECK", &page, 1, 0, value, pad_name, pads);
+    px_chrome_pads("DECK", &page, 1, 0, value, pad_short, pads);
     px_print("DECK", 2, 1, PX_GOLD);
     px_print(k->name, 2, 8, PX_WHITE);
     /* four parts of four loops, as the keys lie: on filled, waiting to change blinking */

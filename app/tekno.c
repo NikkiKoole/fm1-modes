@@ -161,7 +161,7 @@ static const struct { const char *name, *notes, *slides; } acid_lines[VARIANTS] 
     {"DOTTED",  "a-.M-.a-.k-.a-.m", "................"},   /* (PULSE's second) a note every dotted 8th: 3 against 4 */
     {0, 0, 0}, {0, 0, 0}, {0, 0, 0},
 };
-static const char *const pad_name[PX_PADS] = {"RMB", "RLL", "TOM", "HAT", "CLP", "ACD", "GRN", "", "", "", ""};
+static const char *const pad_name[PX_PADS] = {"RM", "RL", "TM", "HT", "CP", "AC", "GR", "", "", "", ""};   /* (the strip: two letters) */
 static const char *const note_name[12] = {"C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"};
 static const uint8_t white_keys[16] = {0, 2, 4, 6, 7, 9, 11, 12, 14, 16, 18, 19, 21, 23, 24, 26};
 static const uint8_t black_keys[PX_PADS] = {1, 3, 5, 8, 10, 13, 15, 17, 20, 22, 25};

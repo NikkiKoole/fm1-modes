@@ -166,7 +166,7 @@ static uint16_t held_steps;   /* step keys held right now */
 
 /* the black keys pick the voice (the other five: ALGORITHM) */
 static const uint8_t black_voice[PX_PADS] = {V_KICK, V_SNARE, V_RIM, V_HATC, V_HATO, V_CYM, V_COW, V_CLV, V_BONH, V_CONGA, V_GUIRO};
-static const char *const voice_pad[PX_PADS] = {"KCK", "SNR", "RIM", "HHC", "HHO", "CYM", "COW", "CLV", "BNG", "CNG", "GUI"};
+static const char *const voice_pad[PX_PADS] = {"BD", "SD", "RM", "CH", "OH", "CY", "CB", "CL", "BO", "CO", "GU"};   /* (the strip: two letters) */
 static uint32_t voice_lit(void)
 {
     for (unsigned i = 0; i < PX_PADS; ++i) if (black_voice[i] == selected) return 1U << i;
@@ -175,6 +175,7 @@ static uint32_t voice_lit(void)
 /* ... and with FX held, the performance pads: fixed throws of the LIVE effects, on while held */
 enum { P_R16, P_R32, P_HLF, P_REV, P_LPF, P_HPF, P_CRS, P_GAT, P_DRV, P_PMP, P_SWP };
 static const char *const pad_name[PX_PADS] = {"R16", "R32", "HLF", "REV", "LPF", "HPF", "CRS", "GAT", "DRV", "PMP", "SWP"};
+static const char *const pad_short[PX_PADS] = {"16", "32", "HF", "RV", "LP", "HP", "CR", "GT", "DR", "PM", "SW"};   /* (the strip: two letters) */
 static uint32_t pads_held, pads_latched;
 static unsigned fx_held, fx_used;   /* FX down; a pad was played while it was (else its release mutes) */
 static unsigned screen;   /* (forward: LIVE is the MIX zoom level, VOICE one voice) */
@@ -184,7 +185,7 @@ static uint32_t mute_lit(void)   /* the black keys of the muted voices */
     for (unsigned i = 0; i < PX_PADS; ++i) if ((cr78.voice_mute >> black_voice[i]) & 1U) m |= 1U << i;
     return m;
 }
-static const char *const *key_row(void) { return fx_held ? pad_name : voice_pad; }
+static const char *const *key_row(void) { return fx_held ? pad_short : voice_pad; }
 static uint32_t key_lit(void) { return fx_held ? pads_held | pads_latched : screen == LIVE ? mute_lit() : voice_lit(); }
 
 static float exp2_approx(float x)

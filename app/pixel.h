@@ -40,7 +40,7 @@ struct px_page { const char *name; const char *knob[4]; };
 /* header (mode, page name, one dot per page) + bottom knob bar with values, in the fine strip */
 void px_chrome(const char *mode, const struct px_page *pages, unsigned count, unsigned current,
                const char *const value[4]);
-/* ... and above the knob bar, the eleven black keys in one row of boxes (3 letters fit), `lit` bit i =
+/* ... and above the knob bar, the eleven black keys in one row of boxes (2 letters fit), `lit` bit i =
  * pad i lit (filled gold; or, with px_chrome_pads_colored, in color[i]) */
 enum { PX_PADS = 11 };
 void px_chrome_pads(const char *mode, const struct px_page *pages, unsigned count, unsigned current,
@@ -57,10 +57,6 @@ void px_fine_cls(unsigned color);
 void px_fine_rect(int x, int y, int w, int h, unsigned color);   /* screen pixels, y from the strip's top */
 void px_fine_print(const char *s, int x, int y, unsigned color);
 int px_fine_width(const char *s);
-/* the same letters narrow (5 px wide, 6 a character: 3 letters in 17 px), for the pad boxes and the knob names */
-enum { PX_NARROW_ADV = 6 };
-void px_fine_print_narrow(const char *s, int x, int y, unsigned color);
-int px_fine_width_narrow(const char *s);
 /* a big centred word for `ms` (page names, confirmations), drawn by px_flash_draw */
 void px_flash(const char *text, uint32_t now, uint32_t ms);
 void px_flash_draw(uint32_t now);
