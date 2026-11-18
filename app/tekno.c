@@ -45,6 +45,19 @@
  * No swing: the references measured dead straight (the bounce is in which sixteenths are hit).
  *
  * TODO (talked about, not built yet):
+ *   - FROM TWO MORE REFERENCES (Sensory Overload "Instant Coffee", Esoteric / Curley "Floatdemonium", both
+ *     185 BPM; measured 18 Nov 2026): their kick is our RUMBLE (flat on A1) but with strong EVEN harmonics:
+ *     DONE, KICK's DRV now keeps the clipper lopsided above 26 (2nd, 3rd ~-15 dB at DRV 70-90, as theirs).
+ *     Still open from them:
+ *       - a METALLIC LEAD: Floatdemonium's mid lead is bright (1-8 kHz), tonal but INHARMONIC (peaks at 102,
+ *         215, 447, 694, 867 Hz ...), smeared over G..A#, swept once a bar. We have nothing like it: give
+ *         GRENADIER a ring / FM mode, or build the SCREECH layer
+ *       - 185 BPM: a "mental" KIT (180-190) beside tribe's 160-175
+ *       - their notes: A with A# and G# grinding (phrygian / chromatic): the acid's SCALE knob
+ *       - arrangement: long kickless intros, a kickless breakdown, highs filtered out and back (DJ filter
+ *         done; DROP / BUILD and scenes)
+ *       - vocal snippets in both: samples (the chant, still undecided: flash space)
+ *       - hats on every 16th, short (20-40 ms), accents moving; no prominent claps: as we have
  *   - PERC (DONE, a first version: after Korg's Electribe ER-1, black key 8): two synth percussion
  *     voices, their pitch MOD the sound (DROP RISE TRILL RANDOM NOISE), A ring-modulated by B; six
  *     sounds (SND), six patterns (PATN). Still to do: patterns on the white keys (with hold-to-pick),
@@ -253,6 +266,7 @@ static float exp2f_(float x)
 }
 static float expf_(float x) { return exp2f_(x * 1.4426950f); }
 static float tanhf_(float x) { float e = expf_(2.0f * x); return (e - 1.0f) / (e + 1.0f); }
+#define KICK_BIAS 1.1f   /* (tuned on Instant Coffee's and Floatdemonium's kicks: 2nd, 3rd ~-15 dB at DRV 70-90) */
 static int32_t q30(float x) { return (int32_t)(x * 1073741824.0f); }
 static int32_t per_sample(float ms) { return q30(expf_(-1.0f / (ms * 44.1f))); }          /* a decay of time constant ms */
 static int32_t per_16(float ms) { return q30(expf_(-16.0f / (ms * 44.1f))); }             /* ... applied every 16 samples */
@@ -380,6 +394,10 @@ static void apply(void)
         t->kick_drive_norm = (int32_t)(32768.0f / tanhf_(g));
         t->kick_drive_neg = (int32_t)(g * 0.4f * 4096.0f);   /* lopsided: the 2nd harmonic as loud as the 3rd (as measured) */
         t->kick_drive_pos = (int32_t)(g * 4096.0f);
+        float b = d > 0.26f ? KICK_BIAS * (d - 0.26f) / 0.74f : 0.0f;   /* above the default (26) an offset grows with the
+                                                                           * drive: pushed hard it stays lopsided */
+        t->kick_drive_bias = (int32_t)(b * 32768.0f);
+        t->kick_drive_rest = (int32_t)(tanhf_(b) * 32768.0f);
     } else t->kick_drive_pos = 0;
     k = knob[P_ROLL];
     t->roll_feel = feels[k[0]].mask;

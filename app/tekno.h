@@ -68,6 +68,7 @@ struct tekno_params {
     volatile int32_t kick_decay_k;           /* the tail: the level times this every sample, Q30 */
     volatile int32_t kick_click;             /* Q15 */
     volatile int32_t kick_drive_pos, kick_drive_neg, kick_drive_norm;   /* Q12 input gains (0 off); Q15 1/tanh(g) */
+    volatile int32_t kick_drive_bias, kick_drive_rest;   /* an offset into the clipper (Q15), and its tanh (taken off after) */
     volatile int32_t kick_tone;              /* a one-pole low pass after the drive, Q15 */
     volatile int32_t kick_level;             /* Q15 */
     /* ROLL: the bass between the kicks, on the kick's note. feel: bit s = a bass note on step s of the bar */

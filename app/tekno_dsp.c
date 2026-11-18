@@ -255,6 +255,7 @@ FM1_AUDIO_CODE void tekno_render(int32_t *bus)
     if (quiet >= 400U) { stepq += rate_q24 * N; now += N; return; }   /* ~1 s silent: rest */
     const int32_t dk = tekno.kick_decay_k, pk = tekno.kick_pitch_k, tk = tekno.tom_decay_k, tpk = tekno.tom_pitch_k;
     const int32_t dpos = tekno.kick_drive_pos, dneg = tekno.kick_drive_neg, dnorm = tekno.kick_drive_norm;
+    const int32_t dbias = tekno.kick_drive_bias, drest = tekno.kick_drive_rest;
     const int32_t tone = tekno.kick_tone, klevel = tekno.kick_level, tlevel = tekno.tom_level;
     const int32_t skin_level = tekno.tom_skin;
     const int32_t bk = tekno.roll_decay_k, bf = tekno.roll_f, bdamp = tekno.roll_damp;
@@ -301,9 +302,10 @@ FM1_AUDIO_CODE void tekno_render(int32_t *bus)
             k += mul15(hp >> 1, click_env >> 15);
             click_env = mul30(click_env, 1030792151);   /* ~0.5 ms, Q30 0.96 */
         }
-        if (dpos) {   /* asymmetric drive, normalized, then a ~7 Hz DC block */
-            int32_t u = clamp((int32_t)(((int64_t)k * (k >= 0 ? dpos : dneg)) >> 12), -262143, 262143);
-            int32_t y = mul15(tanh_q15(u), dnorm);
+        if (dpos) {   /* asymmetric drive (lopsided gains and an offset, so it stays lopsided pushed hard: even
+                       * harmonics, as the references' kicks), normalized, then a ~7 Hz DC block */
+            int32_t u = clamp((int32_t)(((int64_t)k * (k >= 0 ? dpos : dneg)) >> 12) + dbias, -262143, 262143);
+            int32_t y = mul15(tanh_q15(u) - drest, dnorm);
             int32_t out = y - drive_x1 + (int32_t)(((int64_t)drive_y1 * 32735) >> 15);
             drive_x1 = y; drive_y1 = out; k = out;
         }
