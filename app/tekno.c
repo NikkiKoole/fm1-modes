@@ -40,6 +40,10 @@
  *     its repeats filtered darker (the FX rack has no delay, only the spring)
  *   - GRENADIER's CMOS drift: each pulse nudges the filters a little at random (the cart's RND)
  *   - fuller CLAPS: they sound thin next to the references; more noise body, a bit of room
+ *   - SHOW WHAT EACH EFFECT IS ON: the screen doesn't say it. SWEEP is the acid's, MOVE
+ *     grenadier's, FLANGE the hats', PHASER the percussion's (toms, hats, clap), VOWEL the whole
+ *     mix (the kick's sub kept out), and the FX mode's rack only what its CR78 SEND gives it.
+ *     E.g. light the layer boxes an effect page reaches, or group the pages by what they are on
  *   - later maybe: a SCREECH (hoover / FM stab on the offbeats), STUTTER (Electribe-style
  *     beat repeat into a drop), an optional bar-locked CHOP on the ROLL bass (Mandidextrous) */
 #include "tekno.h"
