@@ -12,7 +12,7 @@ Open the launcher with **HOME + ARP**, turn **KNOB 1** to a mode, press **OCT+**
 
 | Mode | What it is |
 |---|---|
-| **TEKNO** | 90s free-party tekno (French hardtek, Czech tribe), played live: a rumble kick or a rolling kick + bass, tuned toms, hats, clap, an acid 303 with Devil Fish controls (Open303), a GRENADIER triple-filterbank drone, and effects locked to the bars (phaser, flanger, acid sweep, vowel filter). Seven layers on the black keys, patterns on the white keys. Its header comment in `app/tekno.c` has the controls and the to-do list. |
+| **TEKNO** | 90s free-party tekno (French hardtek, Czech tribe), played live. Eight layers on the black keys: a rumble kick and a rolling kick + bass (together or alone), tuned toms, hats, a 909-style clap, an acid 303 with Devil Fish controls (Open303), a GRENADIER triple-filterbank drone and an ER-1-style PERC layer. Patterns on the white keys. Effects locked to the bars (phaser, flanger, acid sweep, vowel filter), a dub echo with sends, a DJ filter and a pump. SELECT picks the instrument, ALGORITHM its page. Scenes on PRESETS: six factory "tracks" tuned against reference records, sixteen of your own (SAVE + a white key). `app/tekno.c`'s header comment has the controls and the to-do list. |
 | **CR-78** | a CR-78 drum machine, 16 steps, ratchets and swing |
 | **RHYTHM BOX** | 101 factory rhythms on TR-77 and Side Man kits |
 | **BASS PLAYER** | follows the chords you play and writes bass lines to them |

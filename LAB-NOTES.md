@@ -49,5 +49,8 @@ expose it. Worth reading how fm1-base does it (`choppah/base/lib/touch.*`) befor
 
 - GROOVEBOX / GROOVE MINI: the panel's rules in `docs/GROOVEBOX-MANUAL.md`; called a good experiment,
   parked (Skiff does the groovebox well).
+- TEKNO (18-19 Nov 2026): the main project now. 90s free tekno, its sounds measured against five reference
+  tracks (Curley / Esoteric, Sensory Overload). Controls, decisions and the to-do list: the header comment of
+  `app/tekno.c`.
 - LOOP DECK: banks of loops that always fit (an idea from Reddit: a DJ toy's banks of pads). Possibly still worth it,
   since no firmware does it; check Skiff's scenes / PERFORM layer first.
