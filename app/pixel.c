@@ -173,6 +173,12 @@ void px_chrome_pads_colored(const char *mode, const struct px_page *pages, unsig
                             const char *const value[4], const char *const pad[PX_PADS], uint32_t lit,
                             const uint8_t color[PX_PADS])
 {
+    px_chrome_pads_marked(mode, pages, count, current, value, pad, lit, color, 0);
+}
+void px_chrome_pads_marked(const char *mode, const struct px_page *pages, unsigned count, unsigned current,
+                           const char *const value[4], const char *const pad[PX_PADS], uint32_t lit,
+                           const uint8_t color[PX_PADS], uint32_t marked)
+{
     px_print(mode, 2, 1, PX_GOLD);
     if (count) px_print(pages[current].name, 2 + (int)strlen(mode) * 4 + 3, 1, PX_EMBER);
     /* one dot per page, right-aligned; when they would run into the title, on a line of their own under it */
@@ -192,6 +198,7 @@ void px_chrome_pads_colored(const char *mode, const struct px_page *pages, unsig
             unsigned on = (lit >> i) & 1U, named = pad[i] && *pad[i];
             px_fine_rect(x, 1, 20, 14, on && named ? (color ? color[i] : PX_GOLD) : PX_DUSK);
             if (named) px_fine_print(pad[i], x + (20 - px_fine_width(pad[i])) / 2, 3, on ? PX_NIGHT : PX_SLATE);
+            if ((marked >> i) & 1U) px_fine_rect(x, 16, 20, 2, PX_WHITE);   /* the page is about this pad */
         }
         y = 20;
     } else px_fine_rect(0, 1, PX_W * 3, 1, PX_DUSK);

@@ -21,7 +21,10 @@
  *                     · SWEEP (the acid's cutoff ridden on the bars: DEPTH BARS SHAPE RESO)
  *                     · GREN (BASE SPACE Q MORPH) · MOVE (its sweep DEPTH and RATE, GATE, LEVEL)
  *                     · PHASER (on the percussion: DEPTH BARS FDBK MIX) · FLANGE (on the hats: DEPTH BARS
- *                     FDBK MIX) · VOWEL (VOWEL MOVE RATE MIX) · MIX (TEMPO LEVEL TONE CLICK)
+ *                     FDBK MIX) · VOWEL (VOWEL MOVE RATE MIX) · MIX 1 (the levels: KICK ROLL TOMS HATS)
+ *                     · MIX 2 (CLAP ACID GREN, and TEMPO). KICK 2 (TONE CLICK LEVEL) follows KICK.
+ *                     Each level is also on its layer's own page: both move together. The pads a page
+ *                     is about are marked at the bottom (a white bar under their boxes).
  *   PLAY              play / stop (the first layer switched on starts it)
  *   HOME              back (it keeps playing)
  * Layers and patterns change on the next bar (their keys blink until then).
@@ -96,9 +99,10 @@
 #include "cr78.h"
 #include <string.h>
 
-enum { PAGES = 15, PATTERNS = 4, FEELS = 8, LAYERS = 7, LANES = TEKNO_LANES };
+enum { PAGES = 17, PATTERNS = 4, FEELS = 8, LAYERS = 7, LANES = TEKNO_LANES };
 static const struct px_page pages[PAGES] = {
     {"KICK", {"TUNE", "PNCH", "DCAY", "DRV"}},
+    {"KICK 2", {"TONE", "CLK", "LVL", ""}},
     {"ROLL", {"FEEL", "DCAY", "CUT", "DRV"}},
     {"TOMS", {"TUNE", "GAP", "DCAY", "LVL"}},
     {"HATS", {"TONE", "CLSD", "OPEN", "LVL"}},
@@ -112,21 +116,32 @@ static const struct px_page pages[PAGES] = {
     {"PHASER", {"DPTH", "BARS", "FDBK", "MIX"}},
     {"FLANGE", {"DPTH", "BARS", "FDBK", "MIX"}},
     {"VOWEL", {"VOWL", "MOVE", "RATE", "MIX"}},
-    {"MIX", {"TMPO", "KICK", "TONE", "CLK"}},
+    {"MIX 1", {"KICK", "ROLL", "TOMS", "HATS"}},
+    {"MIX 2", {"CLAP", "ACID", "GREN", "TMPO"}},
 };
-/* knob values: KICK note (MIDI) punch decay drive; ROLL feel(0-3) decay cutoff drive; TOMS note gap decay level;
- * HATS tone closed open level; CLAP tune spread decay level; PHASER depth bars(0-3) fb mix; MIX - level tone click */
-enum { P_KICK, P_ROLL, P_TOMS, P_HATS, P_CLAP, P_ACID, P_DEVIL, P_GNARL, P_SWEEP, P_GREN, P_MOVE, P_PHASER, P_FLANGE, P_VOWEL, P_MIX };
-static int16_t knob[PAGES][4] = {{33, 60, 15, 26}, {0, 40, 45, 40}, {56, 2, 45, 45}, {50, 30, 50, 50}, {40, 40, 40, 50},
+/* knob values, a page a row (see apply()); MIX 1 / MIX 2 are the levels, each also on its layer's own page */
+enum { P_KICK, P_KICK2, P_ROLL, P_TOMS, P_HATS, P_CLAP, P_ACID, P_DEVIL, P_GNARL, P_SWEEP, P_GREN, P_MOVE, P_PHASER, P_FLANGE,
+       P_VOWEL, P_MIX1, P_MIX2 };
+static int16_t knob[PAGES][4] = {{33, 60, 15, 26}, {62, 30, 62, 0}, {0, 40, 45, 40}, {56, 2, 45, 45}, {50, 30, 50, 50}, {40, 40, 40, 50},
                                  {40, 75, 70, 30}, {80, 20, 30, 55}, {25, 0, 0, 60}, {0, 2, 0, 30},
                                  {45, 45, 55, 55}, {50, 5, 3, 60},
-                                 {80, 2, 50, 50}, {70, 3, 60, 0}, {50, 60, 3, 0}, {0, 62, 62, 30}};
-static const int16_t lo[PAGES][4] = {{28, 0, 0, 0}, {0, 0, 0, 0}, {48, 1, 0, 0}, {0, 0, 0, 0}, {0, 0, 0, 0},
+                                 {80, 2, 50, 50}, {70, 3, 60, 0}, {50, 60, 3, 0},
+                                 {62, 62, 45, 50}, {50, 60, 60, 0}};
+static const int16_t lo[PAGES][4] = {{28, 0, 0, 0}, {0, 0, 0, 0}, {0, 0, 0, 0}, {48, 1, 0, 0}, {0, 0, 0, 0}, {0, 0, 0, 0},
                                      {0, 0, 0, 0}, {0, 0, 0, 0}, {0, 0, 0, 0}, {0, 0, 0, 0}, {0, 0, 0, 0}, {0, 0, 0, 0},
-                                     {0, 0, 0, 0}, {0, 0, 0, 0}, {0, 0, 0, 0}, {0, 0, 0, 0}};
-static const int16_t hi[PAGES][4] = {{39, 100, 100, 100}, {FEELS - 1, 100, 100, 100}, {72, 12, 100, 100}, {100, 100, 100, 100},
+                                     {0, 0, 0, 0}, {0, 0, 0, 0}, {0, 0, 0, 0}, {0, 0, 0, 0}, {0, 0, 0, 0}};
+static const int16_t hi[PAGES][4] = {{39, 100, 100, 100}, {100, 100, 100, 0}, {FEELS - 1, 100, 100, 100}, {72, 12, 100, 100},
                                      {100, 100, 100, 100}, {100, 100, 100, 100}, {100, 100, 100, 100}, {100, 100, 100, 100},
-                                     {100, 3, 2, 100}, {100, 100, 100, 100}, {100, 6, 4, 100}, {100, 3, 95, 100}, {100, 3, 95, 100}, {100, 100, 5, 100}, {0, 100, 100, 100}};
+                                     {100, 100, 100, 100}, {100, 3, 2, 100}, {100, 100, 100, 100}, {100, 6, 4, 100},
+                                     {100, 3, 95, 100}, {100, 3, 95, 100}, {100, 100, 5, 100}, {100, 100, 100, 100}, {100, 100, 100, 0}};
+/* the levels live in two places (their layer's page and MIX 1 / 2): turning one moves the other */
+static const uint8_t level_alias[][4] = {   /* page, knob  <->  page, knob */
+    {P_KICK2, 2, P_MIX1, 0}, {P_TOMS, 3, P_MIX1, 2}, {P_HATS, 3, P_MIX1, 3},
+    {P_CLAP, 3, P_MIX2, 0}, {P_GNARL, 3, P_MIX2, 1}, {P_MOVE, 3, P_MIX2, 2}};
+/* which layers (pad bit l = black key l + 1) each page is about: their boxes are marked at the bottom */
+static const uint8_t page_layers[PAGES] = {
+    0x03, 0x03, 0x02, 0x04, 0x08, 0x10, 0x20, 0x20, 0x20, 0x20, 0x40, 0x40,   /* KICK (RUMBLE and ROLL's) .. MOVE */
+    0x1C, 0x08, 0x7F, 0x7F, 0x7F};                                              /* PHASER (toms hats clap), FLANGE (hats), VOWEL, MIX */
 /* ROLL's feels: which sixteenths of the bar get a bass note (bit s: step s; the kick has the beats).
  * The first ones repeat every beat; 3-3-2 and DOTTED cross it (groups of three against the kick) */
 static const struct { const char *name; uint16_t mask; } feels[FEELS] = {
@@ -306,7 +321,6 @@ static void apply(void)
         t->roll_drive_norm = (int32_t)(32768.0f / tanhf_(g));
         t->roll_drive = (int32_t)(g * 4096.0f);
     } else t->roll_drive = 0;
-    t->roll_level = 20000;
     k = knob[P_TOMS];
     t->tom_inc[0] = dv.note_inc[k[0]];
     t->tom_inc[1] = dv.note_inc[clamp(k[0] - k[1], 0, 127)];
@@ -364,10 +378,11 @@ static void apply(void)
     t->vow_depth = k[1] * 32 * 256 / 100;                                               /* up to half the path each way */
     t->vow_rate = (uint8_t)k[2];
     t->vow_mix = k[3] * 327;
-    k = knob[P_MIX];
-    t->kick_level = k[1] * 300;
-    t->kick_tone = lowpass(120.0f * exp2f_((float)k[2] * 0.06f));                       /* 120 Hz .. 7.7 kHz */
-    t->kick_click = k[3] * 200;
+    k = knob[P_KICK2];
+    t->kick_tone = lowpass(120.0f * exp2f_((float)k[0] * 0.06f));                       /* 120 Hz .. 7.7 kHz */
+    t->kick_click = k[1] * 200;
+    t->kick_level = k[2] * 300;
+    t->roll_level = knob[P_MIX1][1] * 20000 / 62;                                      /* (62: as it always was) */
     apply_acid();
 }
 static uint8_t step_code(char c)
@@ -438,7 +453,7 @@ static void value_text(unsigned pg, unsigned i, char *out)
     else if (pg == P_VOWEL && i == 0) strcpy(out, vowel_name(v));
     else if (pg == P_VOWEL && i == 2) { if (v) px_number(1 << (v - 1), out); else strcpy(out, "BEAT"); }
     else if (pg == P_VOWEL && i == 3 && !v) strcpy(out, "OFF");
-    else if (pg == P_MIX && i == 0) px_number((int)groove_tempo_current(), out);
+    else if (pg == P_MIX2 && i == 3) px_number((int)groove_tempo_current(), out);
     else if (pg == P_KICK && i == 2 && !v) strcpy(out, "FLAT");
     else if (pg == P_ACID && i == 0) px_number((int)(100.0f * exp2f_((float)v * 0.056f)), out);
     else if ((pg == P_ACID && i == 3) || (pg == P_DEVIL && i == 1)) {   /* decays in ms */
@@ -463,7 +478,7 @@ static void draw(uint32_t now)
     }
     px_cls(PX_NIGHT);
     /* the layers are the pads at the bottom, each lit in its own colour */
-    px_chrome_pads_colored("TEKNO", pages, PAGES, page, value, pad_name, lit, layer_color);
+    px_chrome_pads_marked("TEKNO", pages, PAGES, page, value, pad_name, lit, layer_color, page_layers[page]);
     px_print("TEKNO", 2, 1, PX_GOLD);
     /* the three lanes, a row each (accents tall; toms' low and hats' open hits in their second colour),
      * dark when the layer is off; the playhead below */
@@ -620,11 +635,15 @@ int tekno_control(const struct fm1_controls *c)
     /* KNOB 1-4 */
     const int16_t *k = c->encoders + 2;
     for (unsigned i = 0; i < 4; ++i) {
-        if (!k[i]) continue;
-        if (page == P_MIX && i == 0) groove_tempo_edit(k[i]);
+        if (!k[i] || !pages[page].knob[i][0]) continue;   /* (a knob with no name does nothing) */
+        if (page == P_MIX2 && i == 3) groove_tempo_edit(k[i]);
         else {
             int step = (hi[page][i] - lo[page][i]) > 20 ? 2 : 1;
             knob[page][i] = (int16_t)clamp(knob[page][i] + k[i] * step, lo[page][i], hi[page][i]);
+            for (unsigned a = 0; a < sizeof level_alias / sizeof level_alias[0]; ++a) {   /* a level: its twin too */
+                if (level_alias[a][0] == page && level_alias[a][1] == i) knob[level_alias[a][2]][level_alias[a][3]] = knob[page][i];
+                if (level_alias[a][2] == page && level_alias[a][3] == i) knob[level_alias[a][0]][level_alias[a][1]] = knob[page][i];
+            }
         }
         apply();
         static char text[24];

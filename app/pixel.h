@@ -48,6 +48,10 @@ void px_chrome_pads(const char *mode, const struct px_page *pages, unsigned coun
 void px_chrome_pads_colored(const char *mode, const struct px_page *pages, unsigned count, unsigned current,
                             const char *const value[4], const char *const pad[PX_PADS], uint32_t lit,
                             const uint8_t color[PX_PADS]);
+/* ... and `marked` bit i: a white bar under pad i (the pads the page on show is about) */
+void px_chrome_pads_marked(const char *mode, const struct px_page *pages, unsigned count, unsigned current,
+                           const char *const value[4], const char *const pad[PX_PADS], uint32_t lit,
+                           const uint8_t color[PX_PADS], uint32_t marked);
 
 /* ---- the fine strip: the screen's bottom 48 rows at full resolution (240 x 48), in place of
  * canvas rows 64..79, drawn with the same 3x5 font at 2x (7 px a character: 3 letters in 20 px).
