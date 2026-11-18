@@ -2,8 +2,8 @@
 /* TEKNO: 90s free-party tekno, played live: two kicks, toms, hats, clap, an acid 303, a filterbank drone.
  *
  *   black key 1       RUMBLE on / off: the rumble kick on every beat, its long tuned tail the bass
- *   black key 2       ROLL on / off: a short kick on the beat, bass notes rolling between (RUMBLE
- *                     and ROLL are one at a time: pressing one swaps them at the next bar)
+ *   black key 2       ROLL on / off: a short kick on the beat, bass notes rolling between (with RUMBLE
+ *                     on too: RUMBLE's long kick, ROLL's bass notes over it)
  *   black key 3       TOMS on / off: two tuned toms rolling on the sixteenths
  *   black key 4, 5    HATS, CLAP on / off
  *   black key 6       ACID on / off: a 303 line on the kick's note (an octave up)
@@ -657,7 +657,6 @@ int tekno_control(const struct fm1_controls *c)
         if (!((down >> black_keys[i]) & 1U)) continue;
         uint8_t bit = layer_bit[i], want = tekno.want;
         if (want & bit) want = (uint8_t)(want & ~bit);
-        else if (bit & (TEKNO_KICK | TEKNO_ROLL)) want = (uint8_t)((want & ~(TEKNO_KICK | TEKNO_ROLL)) | bit);   /* one kick at a time */
         else want = (uint8_t)(want | bit);
         tekno.want = want;
         tekno.engaged = want != 0;

@@ -185,7 +185,8 @@ static FM1_AUDIO_CODE void fire(unsigned p, uint32_t delay)
     }
     tekno_step = (uint8_t)s;
     unsigned layers = tekno_layers;
-    if ((layers & (TEKNO_KICK | TEKNO_ROLL)) && !(s & 3U)) kick_hit(delay, (layers & TEKNO_ROLL) != 0);
+    /* one kick a beat: RUMBLE's long tail if RUMBLE is on (with ROLL too, the bass rolls over it), else ROLL's short one */
+    if ((layers & (TEKNO_KICK | TEKNO_ROLL)) && !(s & 3U)) kick_hit(delay, !(layers & TEKNO_KICK));
     if ((layers & TEKNO_ROLL) && (s & 3U) && ((tekno.roll_feel >> s) & 1U))   /* (the kick has the beats) */
         bass_hit((s & 3U) == 2U ? ONE30 : (s & 3U) == 3U ? ONE30 / 10 * 8 : ONE30 / 10 * 7);   /* the & loudest */
     const uint8_t *toms = lanes[TEKNO_LANE_TOMS];
