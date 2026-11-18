@@ -30,7 +30,8 @@
  *                     is about are marked at the bottom (a white bar under their boxes).
  *   PLAY              play / stop (the first layer switched on starts it)
  *   HOME              back (it keeps playing)
- * Layers and patterns change on the next bar (their keys blink until then).
+ * Layers and patterns change on the next bar (their keys blink until then). A layer's black key also takes
+ * SELECT to that instrument's pages (RUMBLE: KICK's).
  *
  * The sound is set from three references (French hardtek / Czech tribe, 155-174 BPM): the kick's
  * low band holds almost flat for the whole beat, the tail tuned (A1), its 2nd and 3rd harmonics
@@ -661,6 +662,11 @@ int tekno_control(const struct fm1_controls *c)
         tekno.want = want;
         tekno.engaged = want != 0;
         if (want & bit) start_if_stopped();
+        {   /* and SELECT goes to that instrument (on the page it was left on): KICK for RUMBLE */
+            static const uint8_t layer_group[LAYERS] = {0, 1, 2, 3, 4, 5, 6};   /* KICK ROLL TOMS HATS CLAP ACID GREN */
+            unsigned g = layer_group[i];
+            page = group_first[g] + group_at[g];
+        }
         px_flash(layer_name[i], now, 400U);
         changed = 1;
     }
