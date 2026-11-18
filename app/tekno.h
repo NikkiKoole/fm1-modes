@@ -37,7 +37,7 @@ struct tekno_gren {
     float base_hz, space, r, morph;              /* the first filter; the ratio up to the next; 1/Q; the trapezoid's steepness */
     float move_oct, level;                       /* the bars' sweep, octaves each way; output */
 };
-enum { TEKNO_GATE_DRONE, TEKNO_GATE_8THS, TEKNO_GATE_16THS, TEKNO_GATE_GALLOP, TEKNO_GATES };
+enum { TEKNO_GATE_DRONE, TEKNO_GATE_4THS, TEKNO_GATE_8THS, TEKNO_GATE_16THS, TEKNO_GATE_GALLOP, TEKNO_GATES };
 
 /* Control writes whole words; audio only reads (except the readback at the end). */
 struct tekno_params {
@@ -88,8 +88,8 @@ struct tekno_params {
     volatile uint8_t acid_dirty;
     volatile uint8_t acid_root;
     struct tekno_acid acid;
-    /* GRENADIER: the gate, one sweep every 16 << shift steps */
-    volatile uint8_t gren_gate, gren_shift;
+    /* GRENADIER: the gate; the sweep's rate, 0 half a beat .. 3 a bar .. 6 eight bars (one sweep every 2 << rate steps) */
+    volatile uint8_t gren_gate, gren_rate;
     struct tekno_gren gren;
     uint32_t ratio[TEKNO_RATIOS];            /* 2^(i/96), Q16 (control fills it once) */
     int16_t vowel[TEKNO_VOWELS][3][4];       /* per place, the four bands' SVF f, damping, level (Q15) */

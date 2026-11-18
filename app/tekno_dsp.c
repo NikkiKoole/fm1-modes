@@ -189,11 +189,11 @@ static FM1_AUDIO_CODE void fire(unsigned p, uint32_t delay)
     if (layers & TEKNO_GREN) {
         unsigned gate = tekno.gren_gate, q = s & 3U;
         if (!gren_playing) { tekno_gren_note((int)tekno.acid_root); gren_playing = 1; if (gate == TEKNO_GATE_DRONE) tekno_gren_pulse(1.0f); }
-        unsigned pulse = gate == TEKNO_GATE_16THS || (gate == TEKNO_GATE_8THS && !(s & 1U)) || (gate == TEKNO_GATE_GALLOP && q != 1U);
+        unsigned pulse = gate == TEKNO_GATE_16THS || (gate == TEKNO_GATE_8THS && !(s & 1U)) || (gate == TEKNO_GATE_4THS && !q) || (gate == TEKNO_GATE_GALLOP && q != 1U);
         if (gate == TEKNO_GATE_DRONE && !gren_droning) tekno_gren_pulse(1.0f);
         gren_droning = gate == TEKNO_GATE_DRONE;
         if (pulse && rate_q24) {
-            float len = (float)(1U << 24) / (float)rate_q24 * (gate == TEKNO_GATE_8THS ? 2.0f : 1.0f);   /* samples in a pulse */
+            float len = (float)(1U << 24) / (float)rate_q24 * (gate == TEKNO_GATE_4THS ? 4.0f : gate == TEKNO_GATE_8THS ? 2.0f : 1.0f);   /* samples in a pulse */
             tekno_gren_pulse(gren_decay(len));
         }
     } else if (gren_playing) { tekno_gren_off(); gren_playing = 0; gren_droning = 0; }
@@ -216,7 +216,7 @@ FM1_AUDIO_CODE void tekno_render(int32_t *bus)
     const uint32_t cgap = tekno.clap_gap;
     const int32_t fdepth = tekno.fl_depth, ffb = tekno.fl_feedback, fmix = tekno.fl_mix;
     const unsigned fshift = 4U - (tekno.fl_shift & 3U), ashift = 4U - (tekno.asw_shift & 3U), ashape = tekno.asw_shape;
-    const unsigned gshift = 4U - (tekno.gren_shift & 3U);
+    const unsigned gshift = 7U - (tekno.gren_rate > 6U ? 6U : tekno.gren_rate);
     const unsigned sweeping = tekno.acid.sweep_oct != 0.0f;   /* (DEPTH 0: off, RES too) */
     const int32_t vcenter = tekno.vow_center, vdepth = tekno.vow_depth, vmix = tekno.vow_mix;
     const unsigned vshift = 6U - (tekno.vow_rate > 5U ? 5U : tekno.vow_rate);

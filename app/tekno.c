@@ -48,7 +48,7 @@ static const struct px_page pages[PAGES] = {
     {"GNARL", {"FFM", "SUB", "TRK", "LVL"}},
     {"SWEEP", {"DPTH", "BARS", "SHAP", "RES"}},
     {"GREN", {"BASE", "SPCE", "Q", "MRPH"}},
-    {"MOVE", {"DPTH", "BARS", "GATE", "LVL"}},
+    {"MOVE", {"DPTH", "RATE", "GATE", "LVL"}},
     {"PHASER", {"DPTH", "BARS", "FDBK", "MIX"}},
     {"FLANGE", {"DPTH", "BARS", "FDBK", "MIX"}},
     {"VOWEL", {"VOWL", "MOVE", "RATE", "MIX"}},
@@ -59,14 +59,14 @@ static const struct px_page pages[PAGES] = {
 enum { P_KICK, P_ROLL, P_TOMS, P_HATS, P_CLAP, P_ACID, P_DEVIL, P_GNARL, P_SWEEP, P_GREN, P_MOVE, P_PHASER, P_FLANGE, P_VOWEL, P_MIX };
 static int16_t knob[PAGES][4] = {{33, 60, 15, 26}, {0, 40, 45, 40}, {56, 2, 45, 45}, {50, 30, 50, 50}, {40, 40, 40, 50},
                                  {40, 75, 70, 30}, {80, 20, 30, 55}, {25, 0, 0, 60}, {0, 2, 0, 30},
-                                 {45, 45, 55, 55}, {50, 2, 2, 60},
+                                 {45, 45, 55, 55}, {50, 5, 3, 60},
                                  {80, 2, 50, 50}, {70, 3, 60, 0}, {50, 60, 3, 0}, {0, 62, 62, 30}};
 static const int16_t lo[PAGES][4] = {{28, 0, 0, 0}, {0, 0, 0, 0}, {48, 1, 0, 0}, {0, 0, 0, 0}, {0, 0, 0, 0},
                                      {0, 0, 0, 0}, {0, 0, 0, 0}, {0, 0, 0, 0}, {0, 0, 0, 0}, {0, 0, 0, 0}, {0, 0, 0, 0},
                                      {0, 0, 0, 0}, {0, 0, 0, 0}, {0, 0, 0, 0}, {0, 0, 0, 0}};
 static const int16_t hi[PAGES][4] = {{39, 100, 100, 100}, {3, 100, 100, 100}, {72, 12, 100, 100}, {100, 100, 100, 100},
                                      {100, 100, 100, 100}, {100, 100, 100, 100}, {100, 100, 100, 100}, {100, 100, 100, 100},
-                                     {100, 3, 2, 100}, {100, 100, 100, 100}, {100, 3, 3, 100}, {100, 3, 95, 100}, {100, 3, 95, 100}, {100, 100, 5, 100}, {0, 100, 100, 100}};
+                                     {100, 3, 2, 100}, {100, 100, 100, 100}, {100, 6, 4, 100}, {100, 3, 95, 100}, {100, 3, 95, 100}, {100, 100, 5, 100}, {0, 100, 100, 100}};
 /* ROLL's feels: which sixteenths after the kick get a bass note (bit 1 e, 2 &, 3 a) */
 static const struct { const char *name; uint8_t mask; } feels[FEELS] = {
     {"GALLOP", 0x0C}, {"ROLL", 0x0E}, {"OFFBEAT", 0x04}, {"PUSH", 0x08}};
@@ -279,7 +279,7 @@ static void apply(void)
         g->morph = 1.0f / (1.0f - (float)k[3] / 100.0f * 0.99f + 0.01f);
         k = knob[P_MOVE];
         g->move_oct = 2.0f * (float)k[0] / 100.0f;
-        t->gren_shift = (uint8_t)k[1];
+        t->gren_rate = (uint8_t)k[1];
         t->gren_gate = (uint8_t)k[2];
         g->level = 1.0f * (float)k[3] / 100.0f;
     }
@@ -356,8 +356,9 @@ static void value_text(unsigned pg, unsigned i, char *out)
     int v = knob[pg][i];
     if ((pg == P_KICK || pg == P_TOMS) && i == 0) { strcpy(out, note_name[v % 12]); px_number(v / 12 - 1, out + strlen(out)); }
     else if (pg == P_ROLL && i == 0) strcpy(out, feels[v].name);
-    else if ((pg == P_PHASER || pg == P_FLANGE || pg == P_SWEEP || pg == P_MOVE) && i == 1) px_number(1 << v, out);
-    else if (pg == P_MOVE && i == 2) { static const char *const gates[TEKNO_GATES] = {"DRONE", "8THS", "16THS", "GALLOP"}; strcpy(out, gates[v]); }
+    else if (pg == P_MOVE && i == 1) { static const char *const rates[7] = {"1/2 B", "BEAT", "2 B", "1", "2", "4", "8"}; strcpy(out, rates[v]); }
+    else if ((pg == P_PHASER || pg == P_FLANGE || pg == P_SWEEP) && i == 1) px_number(1 << v, out);
+    else if (pg == P_MOVE && i == 2) { static const char *const gates[TEKNO_GATES] = {"DRONE", "4THS", "8THS", "16THS", "GALLOP"}; strcpy(out, gates[v]); }
     else if (pg == P_GREN && i == 0) px_number((int)(80.0f * exp2f_((float)v * 0.05229f)), out);
     else if (pg == P_SWEEP && i == 2) { static const char *const shapes[3] = {"WAVE", "RISE", "FALL"}; strcpy(out, shapes[v]); }
     else if ((pg == P_SWEEP && i == 0) || (pg == P_FLANGE && i == 3)) { if (v) px_number(v, out); else strcpy(out, "OFF"); }
