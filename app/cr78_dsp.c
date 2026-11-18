@@ -6,6 +6,7 @@
 #include "gbx.h"
 #include "rhythm.h"
 #include "bass.h"
+#include "tekno.h"
 
 #define BARRIER() __asm__ volatile("" ::: "memory")
 enum { EVENTS = 96, AUDITIONS = 16 };
@@ -126,8 +127,11 @@ FM1_AUDIO_CODE void cr78_tick(void)
     if (playing) {   /* the FM-1 clock, verbatim: one check per block, same period and swing */
         uint32_t period = PERIOD / 100U * (uint32_t)(100 + ((step & 1U) ? -(int)cr78.fm1_swing : (int)cr78.fm1_swing));
         if (first || phase >= period) {
+            unsigned restart = first;
             if (first) first = 0;
             else { phase -= period; step = (step + 1U) & 63U; ++steps; }
+            /* TEKNO places its hits exactly: how far into this block the step was due (a division, once a step) */
+            tekno_clock(step, tempo, restart ? 0U : phase / (tempo * 4U), restart);
             gbx_clock(step & 15U, tempo);   /* the GROOVEBOX's melodic tracks, on the same clock */
             unsigned s = pattern_step(), fade = 0, force = 0;
             if (rolling) {

@@ -58,7 +58,7 @@ void px_flash(const char *text, uint32_t now, uint32_t ms);
 void px_flash_draw(uint32_t now);
 
 /* ---- modes and the launcher ---- */
-enum { PX_MODE_BASS, PX_MODE_CR78, PX_MODE_RHYTHM, PX_MODE_SYNTH, PX_MODE_FX, PX_MODE_GAME, PX_MODE_GBX, PX_MODE_MINI, PX_MODE_DECK, PX_MODES };
+enum { PX_MODE_BASS, PX_MODE_CR78, PX_MODE_RHYTHM, PX_MODE_SYNTH, PX_MODE_FX, PX_MODE_GAME, PX_MODE_GBX, PX_MODE_MINI, PX_MODE_DECK, PX_MODE_TEKNO, PX_MODES };
 void px_mode_request(int mode);   /* the launcher asks `mode` to open on its next control call */
 /* a mode's open/close signal: 1 when closed and asked to open, or open and HOME was pressed */
 unsigned px_mode_toggle(uint32_t pressed, unsigned mode, unsigned active);

@@ -8,6 +8,7 @@
 #include "bass.h"
 #include "fx.h"
 #include "gbx.h"
+#include "tekno.h"
 
 static unsigned output_gain;
 static int32_t usb_pcm[FM1_BLOCK_WORDS] __attribute__((aligned(32)));
@@ -39,7 +40,8 @@ FM1_AUDIO_CODE void fm1_output_mix(int32_t *output)
     mysynth_render(bus[FX_SYNTH]);
     mysynth_lead_render(bus[FX_RHYTHM]);   /* the GROOVEBOX's LEAD */
     dv_render(bus);
-    if (gbx_deck_on) {   /* LOOP DECK is an instrument of its own: the stock song does not play under it */
+    tekno_render(bus[FX_CR78]);   /* TEKNO's own voices, with the drums */
+    if (gbx_deck_on || tekno.engaged) {   /* LOOP DECK and TEKNO are instruments of their own: the stock song does not play under them */
         volatile int32_t *o = output;
         for (unsigned i = 0; i < FM1_BLOCK_WORDS; ++i) o[i] = 0;
     }
