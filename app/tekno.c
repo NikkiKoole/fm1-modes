@@ -8,6 +8,9 @@
  *   black key 4, 5    HATS, CLAP on / off
  *   black key 6       ACID on / off: a 303 line on the kick's note (an octave up)
  *   black key 7       GRENADIER on / off: a triple-filterbank drone on the same note, chugged by its gate
+ *   black key 8       PERC on / off: two synth percussion voices after Korg's ER-1 (bloops, zaps, bubbles,
+ *                     cowbells, trills, metal): a sound (SND) and a pattern (PATN) on its page, voice A and
+ *                     voice B (PTCH DCAY MOD DPTH) on its others
  *   white keys 1-4    the toms' pattern: RUN, GALLOP, TRIBE (again: 3-3-2), SPARSE
  *   white keys 5-8    the hats' pattern: 16THS, OFFBEAT, GALLOP, BUSY
  *   white keys 9-12   the clap's pattern: BACKBEAT, OFFBEAT, BREAKER, FILL
@@ -42,6 +45,10 @@
  * No swing: the references measured dead straight (the bounce is in which sixteenths are hit).
  *
  * TODO (talked about, not built yet):
+ *   - PERC (DONE, a first version: after Korg's Electribe ER-1, black key 8): two synth percussion
+ *     voices, their pitch MOD the sound (DROP RISE TRILL RANDOM NOISE), A ring-modulated by B; six
+ *     sounds (SND), six patterns (PATN). Still to do: patterns on the white keys (with hold-to-pick),
+ *     the wave as a knob, maybe the full four voices (two pairs), and cross-mod (FM) beside RING
  *   - THE BUTTON PLAN (TEKNO uses HOME, PLAY, SELECT, ALGO, KNOB 1-4 and the keys; the rest is free:
  *     the other buttons and the PRESETS encoder).
  *     After docs/GROOVEBOX-MANUAL.md's grammar (hold = scope, GLO = the verbs, hold FX = pads):
@@ -109,7 +116,25 @@
 #include "gbx.h"   /* gbx_svf, gbx_exp2: the PERFORM filter's coefficients (as LOOP DECK) */
 #include <string.h>
 
-enum { PAGES = 19, PATTERNS = 4, FEELS = 8, LAYERS = 7, LANES = TEKNO_LANES };
+/* PERC (ER-1 style, see tekno.h): its sounds (SND loads them into the knobs) and patterns (PATN):
+ * a step is 'a' voice A, 'b' voice B, 'x' both, upper case accented, '.' a rest */
+enum { PERC_SOUNDS = 6, PERC_PATTERNS = 6 };
+static const struct { const char *name; uint8_t wave[2]; int16_t v[2][4]; int16_t ring; } perc_sounds[PERC_SOUNDS] = {
+    /*           waves A, B                          A: PTCH DCAY MOD DPTH     B: PTCH DCAY MOD DPTH    RING */
+    {"BLOOP",   {TEKNO_PERC_SINE, TEKNO_PERC_SINE},  {{60, 25, TEKNO_MOD_DROP, 12}, {55, 25, TEKNO_MOD_DROP, 12}}, 0},
+    {"ZAP",     {TEKNO_PERC_SQUARE, TEKNO_PERC_SAW}, {{72, 12, TEKNO_MOD_DROP, 36}, {67, 10, TEKNO_MOD_DROP, 30}}, 0},
+    {"BUBBLE",  {TEKNO_PERC_SQUARE, TEKNO_PERC_TRI}, {{70, 20, TEKNO_MOD_RANDOM_FAST, 24}, {63, 20, TEKNO_MOD_RANDOM, 12}}, 0},
+    {"COWBELL", {TEKNO_PERC_SQUARE, TEKNO_PERC_SQUARE}, {{79, 20, TEKNO_MOD_OFF, 0}, {72, 20, TEKNO_MOD_OFF, 0}}, 70},
+    {"TRILL",   {TEKNO_PERC_TRI, TEKNO_PERC_SINE},   {{65, 35, TEKNO_MOD_TRILL_FAST, 7}, {58, 35, TEKNO_MOD_TRILL, 5}}, 0},
+    {"METAL",   {TEKNO_PERC_SAW, TEKNO_PERC_SQUARE}, {{66, 18, TEKNO_MOD_NOISE, 5}, {78, 18, TEKNO_MOD_OFF, 0}}, 100},
+};
+static const struct { const char *name, *steps; } perc_patterns[PERC_PATTERNS] = {
+    {"OFFBEAT", "..a...b...a...b."}, {"GALLOP", "..ab..ab..ab..aB"}, {"TRIBE", ".a.b.ab..a.b.aBa"},
+    {"BUBBLE", "abababababababab"}, {"SPARSE", "...a.......b...."}, {"3-3-2", "A..b..a.A..b..a."},
+};
+static const char *const mod_name[TEKNO_MODS] = {"OFF", "DROP", "RISE", "TRIL", "TRL+", "RAND", "RND+", "NOIS"};
+static uint8_t perc_wave[2] = {TEKNO_PERC_SINE, TEKNO_PERC_SINE};
+enum { PAGES = 22, PATTERNS = 4, FEELS = 8, LAYERS = 8, LANES = TEKNO_LANES };
 static const struct px_page pages[PAGES] = {
     {"KICK", {"TUNE", "PNCH", "DCAY", "DRV"}},
     {"KICK", {"TONE", "CLK", "LVL", "FINE"}},
@@ -124,43 +149,50 @@ static const struct px_page pages[PAGES] = {
     {"SWEEP", {"DPTH", "BARS", "SHAP", "RES"}},
     {"GREN", {"BASE", "SPCE", "Q", "MRPH"}},
     {"MOVE", {"DPTH", "RATE", "GATE", "LVL"}},
+    {"PERC", {"SND", "PATN", "RING", "LVL"}},
+    {"VOICE A", {"PTCH", "DCAY", "MOD", "DPTH"}},
+    {"VOICE B", {"PTCH", "DCAY", "MOD", "DPTH"}},
     {"PHASER", {"DPTH", "BARS", "FDBK", "MIX"}},
     {"FLANGE", {"DPTH", "BARS", "FDBK", "MIX"}},
     {"VOWEL", {"VOWL", "MOVE", "RATE", "MIX"}},
     {"MIX", {"KICK", "ROLL", "TOMS", "HATS"}},
     {"MIX", {"CLAP", "ACID", "GREN", "TMPO"}},
-    {"MIX", {"FLTR", "RES", "", ""}},
+    {"MIX", {"FLTR", "RES", "PERC", ""}},
 };
 /* knob values, a page a row (see apply()); MIX 1 / MIX 2 are the levels, each also on its layer's own page */
-enum { P_KICK, P_KICK2, P_ROLL, P_TOMS, P_HATS, P_CLAP, P_CLAP2, P_ACID, P_DEVIL, P_GNARL, P_SWEEP, P_GREN, P_MOVE, P_PHASER, P_FLANGE,
-       P_VOWEL, P_MIX1, P_MIX2, P_MIX3 };
+enum { P_KICK, P_KICK2, P_ROLL, P_TOMS, P_HATS, P_CLAP, P_CLAP2, P_ACID, P_DEVIL, P_GNARL, P_SWEEP, P_GREN, P_MOVE,
+       P_PERC, P_PERCA, P_PERCB, P_PHASER, P_FLANGE, P_VOWEL, P_MIX1, P_MIX2, P_MIX3 };
 static int16_t knob[PAGES][4] = {{33, 60, 15, 26}, {62, 30, 62, 0}, {0, 40, 45, 40}, {56, 2, 45, 45}, {50, 30, 50, 50}, {40, 40, 40, 50}, {60, 50, 0, 30},
                                  {40, 75, 70, 30}, {80, 20, 30, 55}, {25, 0, 0, 60}, {0, 2, 0, 30},
                                  {45, 45, 55, 55}, {50, 5, 3, 60},
+                                 {0, 0, 0, 50}, {60, 25, 1, 12}, {55, 25, 1, 12},   /* (PERC: its sound's values, loaded on open) */
                                  {80, 2, 50, 50}, {70, 3, 60, 0}, {50, 60, 3, 0},
                                  {62, 62, 45, 50}, {50, 60, 60, 0}, {0, 0, 0, 0}};
 static const int16_t lo[PAGES][4] = {{28, 0, 0, 0}, {0, 0, 0, -50}, {0, 0, 0, 0}, {0, 0, 0, 0}, {48, 1, 0, 0}, {0, 0, 0, 0}, {0, 0, 0, 0},
                                      {0, 0, 0, 0}, {0, 0, 0, 0}, {0, 0, 0, 0}, {0, 0, 0, 0}, {0, 0, 0, 0}, {0, 0, 0, 0},
+                                     {0, 0, 0, 0}, {36, 0, 0, 0}, {36, 0, 0, 0},
                                      {0, 0, 0, 0}, {0, 0, 0, 0}, {0, 0, 0, 0}, {0, 0, 0, 0}, {0, 0, 0, 0}, {-100, 0, 0, 0}};
 static const int16_t hi[PAGES][4] = {{39, 100, 100, 100}, {100, 100, 100, 50}, {FEELS - 1, 100, 100, 100}, {72, 12, 100, 100},
                                      {100, 100, 100, 100}, {100, 100, 100, 100}, {100, 100, 100, 100}, {100, 100, 100, 100},
                                      {100, 100, 100, 100}, {100, 100, 100, 100}, {100, 3, 2, 100}, {100, 100, 100, 100}, {100, 6, 4, 100},
+                                     {PERC_SOUNDS - 1, PERC_PATTERNS - 1, 100, 100}, {96, 100, TEKNO_MODS - 1, 48}, {96, 100, TEKNO_MODS - 1, 48},
                                      {100, 3, 95, 100}, {100, 3, 95, 100}, {100, 100, 5, 100}, {100, 100, 100, 100}, {100, 100, 100, 0},
-                                     {100, 100, 0, 0}};
+                                     {100, 100, 100, 0}};
 /* the levels live in two places (their layer's page and MIX 1 / 2): turning one moves the other */
 static const uint8_t level_alias[][4] = {   /* page, knob  <->  page, knob */
     {P_KICK2, 2, P_MIX1, 0}, {P_TOMS, 3, P_MIX1, 2}, {P_HATS, 3, P_MIX1, 3},
-    {P_CLAP, 3, P_MIX2, 0}, {P_GNARL, 3, P_MIX2, 1}, {P_MOVE, 3, P_MIX2, 2}};
+    {P_CLAP, 3, P_MIX2, 0}, {P_GNARL, 3, P_MIX2, 1}, {P_MOVE, 3, P_MIX2, 2}, {P_PERC, 3, P_MIX3, 2}};
 /* SELECT steps through the instruments (and the effects, the mix), ALGORITHM through an instrument's pages:
  * each group's first page, and which of its pages it was left on */
-enum { GROUPS = 11 };
-static const uint8_t group_first[GROUPS + 1] = {P_KICK, P_ROLL, P_TOMS, P_HATS, P_CLAP, P_ACID, P_GREN, P_PHASER, P_FLANGE,
+enum { GROUPS = 12 };
+static const uint8_t group_first[GROUPS + 1] = {P_KICK, P_ROLL, P_TOMS, P_HATS, P_CLAP, P_ACID, P_GREN, P_PERC, P_PHASER, P_FLANGE,
                                                 P_VOWEL, P_MIX1, PAGES};
 static uint8_t group_at[GROUPS];
 /* which layers (pad bit l = black key l + 1) each page is about: their boxes are marked at the bottom */
 static const uint8_t page_layers[PAGES] = {
     0x03, 0x03, 0x02, 0x04, 0x08, 0x10, 0x10, 0x20, 0x20, 0x20, 0x20, 0x40, 0x40,   /* KICK (RUMBLE and ROLL's) .. MOVE */
-    0x1C, 0x08, 0x7F, 0x7F, 0x7F, 0x7F};                                              /* PHASER (toms hats clap), FLANGE (hats), VOWEL, MIX */
+    0x80, 0x80, 0x80,                                                               /* PERC */
+    0x9C, 0x08, 0xFF, 0xFF, 0xFF, 0xFF};                                            /* PHASER (toms hats clap perc), FLANGE (hats), VOWEL, MIX */
 /* ROLL's feels: which sixteenths of the bar get a bass note (bit s: step s; the kick has the beats).
  * The first ones repeat every beat; 3-3-2 and DOTTED cross it (groups of three against the kick) */
 static const struct { const char *name; uint16_t mask; } feels[FEELS] = {
@@ -174,9 +206,9 @@ static const struct { const char *name; uint16_t mask; } feels[FEELS] = {
     {"DOTTED", 0x8248},    /* x..x..x..x..x..x  every third sixteenth, 3 against 4 */
 };
 /* the layers on the black keys, in order */
-static const uint8_t layer_bit[LAYERS] = {TEKNO_KICK, TEKNO_ROLL, TEKNO_TOMS, TEKNO_HATS, TEKNO_CLAP, TEKNO_ACID, TEKNO_GREN};
-static const char *const layer_name[LAYERS] = {"RUMBLE", "ROLL", "TOMS", "HATS", "CLAP", "ACID", "GRENADIER"};
-static const uint8_t layer_color[PX_PADS] = {PX_EMBER, PX_GOLD, PX_CYAN, PX_WHITE, PX_PINK, PX_GREEN, PX_RED};   /* (their pads' colour) */
+static const uint8_t layer_bit[LAYERS] = {TEKNO_KICK, TEKNO_ROLL, TEKNO_TOMS, TEKNO_HATS, TEKNO_CLAP, TEKNO_ACID, TEKNO_GREN, TEKNO_PERC};
+static const char *const layer_name[LAYERS] = {"RUMBLE", "ROLL", "TOMS", "HATS", "CLAP", "ACID", "GRENADIER", "PERC"};
+static const uint8_t layer_color[PX_PADS] = {PX_EMBER, PX_GOLD, PX_CYAN, PX_WHITE, PX_PINK, PX_GREEN, PX_RED, PX_VIOLET};   /* (their pads' colour) */
 /* the patterns, a lane each: '.' rest, upper case accented.
  * TOMS h / l high / low; HATS x / o closed / open; CLAP x a clap.
  * Each key has a pattern, and some a second (VARIANTS later in the row): pressing a lit key again swaps */
@@ -199,7 +231,7 @@ static const struct { const char *name, *notes, *slides; } acid_lines[VARIANTS] 
     {"DOTTED",  "a-.M-.a-.k-.a-.m", "................"},   /* (PULSE's second) a note every dotted 8th: 3 against 4 */
     {0, 0, 0}, {0, 0, 0}, {0, 0, 0},
 };
-static const char *const pad_name[PX_PADS] = {"RM", "RL", "TM", "HT", "CP", "AC", "GR", "", "", "", ""};   /* (the strip: two letters) */
+static const char *const pad_name[PX_PADS] = {"RM", "RL", "TM", "HT", "CP", "AC", "GR", "PC", "", "", ""};   /* (the strip: two letters) */
 static const char *const note_name[12] = {"C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"};
 static const uint8_t white_keys[16] = {0, 2, 4, 6, 7, 9, 11, 12, 14, 16, 18, 19, 21, 23, 24, 26};
 static const uint8_t black_keys[PX_PADS] = {1, 3, 5, 8, 10, 13, 15, 17, 20, 22, 25};
@@ -295,6 +327,23 @@ static void init_acid(void)   /* the fixed filters */
         float g = tanf_(3.1415927f * 9500.0f / 44100.0f), r = 1.0f / q[i], h = 1.0f / (1.0f + r * g + g * g);
         down[i][0] = g * g * h; down[i][1] = 2.0f * (g * g - 1.0f) * h; down[i][2] = (1.0f - r * g + g * g) * h;
     }
+}
+static void load_perc_sound(unsigned n)   /* SND: the sound's values into the knobs */
+{
+    for (unsigned v = 0; v < 2; ++v) {
+        perc_wave[v] = perc_sounds[n].wave[v];
+        for (unsigned i = 0; i < 4; ++i) knob[P_PERCA + v][i] = perc_sounds[n].v[v][i];
+    }
+    knob[P_PERC][2] = perc_sounds[n].ring;
+}
+static void load_perc_pattern(unsigned n)   /* PATN: in at the next bar */
+{
+    const char *st = perc_patterns[n].steps;
+    for (unsigned i = 0; i < TEKNO_STEPS; ++i) {
+        char c = st[i], l = c >= 'A' && c <= 'Z' ? (char)(c + 32) : c;
+        tekno.perc_want[i] = (uint8_t)((l == 'a' ? 1 : l == 'b' ? 2 : l == 'x' ? 3 : 0) | (c >= 'A' && c <= 'Z' ? 4 : 0));
+    }
+    tekno.perc_dirty = 1;
 }
 static void load_acid(unsigned p)
 {
@@ -427,6 +476,24 @@ static void apply(void)
     t->kick_level = k[2] * 300;
     t->roll_level = knob[P_MIX1][1] * 20000 / 62;                                      /* (62: as it always was) */
     apply_acid();
+    {   /* PERC */
+        const int16_t *pk = knob[P_PERC];
+        t->perc_ring = pk[2] * 327;
+        t->perc_level = pk[3] * 260;
+        t->perc_drop_k = per_16(15.0f);
+        static const float lfo_hz[TEKNO_MODS] = {0, 0, 0, 6.0f, 18.0f, 8.0f, 24.0f, 0};
+        for (unsigned v = 0; v < 2; ++v) {
+            const int16_t *vk = knob[P_PERCA + v];
+            struct tekno_perc_voice *pv = &t->perc[v];
+            pv->wave = perc_wave[v];
+            pv->mod = (uint8_t)vk[2];
+            pv->inc = dv.note_inc[vk[0]];
+            pv->inc_low = dv.note_inc[clamp(vk[0] - vk[3], 0, 127)];
+            pv->depth = vk[3] * 65536;
+            pv->decay_k = per_sample(5.0f * exp2f_((float)vk[1] * 0.0632f));                  /* 5 .. 400 ms */
+            pv->lfo_inc = (uint32_t)(lfo_hz[vk[2]] * 1558261.0f);                            /* (16 samples a step) */
+        }
+    }
     {   /* the DJ FILTER (MIX 3/3): the PERFORM chain's low / high pass on the whole output, as LOOP DECK's
          * FLTR (left low pass, right high pass); only its LPF / HPF bits are TEKNO's */
         struct fx_perf *m = &fx_perf;
@@ -515,6 +582,11 @@ static void value_text(unsigned pg, unsigned i, char *out)
     else if (pg == P_VOWEL && i == 2) { if (v) px_number(1 << (v - 1), out); else strcpy(out, "BEAT"); }
     else if (pg == P_VOWEL && i == 3 && !v) strcpy(out, "OFF");
     else if (pg == P_MIX2 && i == 3) px_number((int)groove_tempo_current(), out);
+    else if (pg == P_PERC && i == 0) strcpy(out, perc_sounds[v].name);
+    else if (pg == P_PERC && i == 1) strcpy(out, perc_patterns[v].name);
+    else if ((pg == P_PERCA || pg == P_PERCB) && i == 0) { strcpy(out, note_name[v % 12]); px_number(v / 12 - 1, out + strlen(out)); }
+    else if ((pg == P_PERCA || pg == P_PERCB) && i == 1) px_number((int)(5.0f * exp2f_((float)v * 0.0632f)), out);
+    else if ((pg == P_PERCA || pg == P_PERCB) && i == 2) strcpy(out, mod_name[v]);
     else if (pg == P_MIX3 && i == 0) { if (v < -2) { strcpy(out, "LP "); px_number(-v, out + 3); } else if (v > 2) { strcpy(out, "HP "); px_number(v, out + 3); } else strcpy(out, "OFF"); }
     else if (pg == P_KICK && i == 2 && !v) strcpy(out, "FLAT");
     else if (pg == P_KICK2 && i == 3) { if (v > 0) { strcpy(out, "+"); px_number(v, out + 1); } else px_number(v, out); }
@@ -561,9 +633,21 @@ static void draw(uint32_t now)
         for (unsigned s = 0; s < 16; ++s) {
             uint8_t code = step_code(steps[s]);
             if (!(code & 3U)) continue;
-            int x = 2 + (int)s * 5, y = 10 + (int)lane * 6;
+            int x = 2 + (int)s * 5, y = 10 + (int)lane * 5;
             unsigned color = on ? lane_color[lane][(code & 3U) == 2U] : PX_DUSK;
             if (code & 4U) px_rect(x, y, 4, 4, color); else px_rect(x, y + 2, 4, 2, color);
+        }
+    }
+    {   /* PERC: voice A low, B high, both full; accents brighter */
+        unsigned on = (tekno.want & TEKNO_PERC) != 0;
+        const char *st = perc_patterns[knob[P_PERC][1]].steps;
+        for (unsigned s = 0; s < 16; ++s) {
+            char c = st[s], l = c >= 'A' && c <= 'Z' ? (char)(c + 32) : c;
+            if (l == '.') continue;
+            unsigned color = !on ? PX_DUSK : c < 'a' ? PX_WHITE : PX_VIOLET;
+            int x = 2 + (int)s * 5;
+            if (l == 'a' || l == 'x') px_rect(x, 27, 4, 2, color);
+            if (l == 'b' || l == 'x') px_rect(x, 25, 4, 2, color);
         }
     }
     {   /* the acid's line: notes higher up the higher they are, slides joined to the next, ties held on */
@@ -654,6 +738,7 @@ int tekno_control(const struct fm1_controls *c)
             for (unsigned i = 0; i < TEKNO_RATIOS; ++i) tekno.ratio[i] = (uint32_t)(exp2f_((float)i / 96.0f) * 65536.0f);
             build_vowels();
             init_acid(); load_acid(0); acid_line_playing = 0;
+            load_perc_sound(0); load_perc_pattern(0);
             for (unsigned lane = 0; lane < LANES; ++lane) { load_pattern(lane, 0); pattern_playing[lane] = 0; }
             groove_tempo_edit(165 - (int)groove_tempo_current());
             opened_once = 1;
@@ -679,7 +764,7 @@ int tekno_control(const struct fm1_controls *c)
         tekno.engaged = want != 0;
         if (want & bit) start_if_stopped();
         {   /* and SELECT goes to that instrument (on the page it was left on): KICK for RUMBLE */
-            static const uint8_t layer_group[LAYERS] = {0, 1, 2, 3, 4, 5, 6};   /* KICK ROLL TOMS HATS CLAP ACID GREN */
+            static const uint8_t layer_group[LAYERS] = {0, 1, 2, 3, 4, 5, 6, 7};   /* KICK ROLL TOMS HATS CLAP ACID GREN PERC */
             unsigned g = layer_group[i];
             page = group_first[g] + group_at[g];
         }
@@ -737,6 +822,8 @@ int tekno_control(const struct fm1_controls *c)
         else {
             int step = (hi[page][i] - lo[page][i]) > 20 ? 2 : 1;
             knob[page][i] = (int16_t)clamp(knob[page][i] + k[i] * step, lo[page][i], hi[page][i]);
+            if (page == P_PERC && i == 0) load_perc_sound((unsigned)knob[page][i]);
+            if (page == P_PERC && i == 1) load_perc_pattern((unsigned)knob[page][i]);
             for (unsigned a = 0; a < sizeof level_alias / sizeof level_alias[0]; ++a) {   /* a level: its twin too */
                 if (level_alias[a][0] == page && level_alias[a][1] == i) knob[level_alias[a][2]][level_alias[a][3]] = knob[page][i];
                 if (level_alias[a][2] == page && level_alias[a][3] == i) knob[level_alias[a][0]][level_alias[a][1]] = knob[page][i];

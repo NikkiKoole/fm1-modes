@@ -7,7 +7,7 @@ enum { SCALE = 3, BAND = 4 /* canvas rows per blit */ };
 
 static const uint16_t palette[PX_COLORS] = {
     RGB(12, 14, 32), RGB(30, 36, 78), RGB(255, 246, 214), RGB(255, 206, 64), RGB(255, 128, 48),
-    RGB(255, 90, 140), RGB(64, 220, 255), RGB(90, 230, 120), RGB(110, 120, 150), RGB(230, 60, 60)};
+    RGB(255, 90, 140), RGB(64, 220, 255), RGB(90, 230, 120), RGB(110, 120, 150), RGB(230, 60, 60), RGB(170, 110, 255)};
 
 /* 3x5 glyphs: one octal digit per row, top row first. */
 static const uint16_t glyph_digit[10] = {075557, 026227, 071747, 071717, 055711,

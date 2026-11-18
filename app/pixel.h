@@ -10,7 +10,7 @@
 enum { PX_W = 80, PX_H = 80 };
 enum {
     PX_NIGHT, PX_DUSK, PX_WHITE, PX_GOLD, PX_EMBER,
-    PX_PINK, PX_CYAN, PX_GREEN, PX_SLATE, PX_RED, PX_COLORS
+    PX_PINK, PX_CYAN, PX_GREEN, PX_SLATE, PX_RED, PX_VIOLET, PX_COLORS
 };
 /* Panel button indices (fm1_controls.buttons bits). */
 enum { PX_OCT_DOWN, PX_OCT_UP, PX_FX, PX_SCL, PX_ENV, PX_LFO, PX_EDIT, PX_GLO,

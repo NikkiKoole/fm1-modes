@@ -10,7 +10,7 @@
 #define FM1_TEKNO_H
 #include "fm1.h"
 
-enum { TEKNO_KICK = 1, TEKNO_TOMS = 2, TEKNO_ROLL = 4, TEKNO_HATS = 8, TEKNO_CLAP = 16, TEKNO_ACID = 32, TEKNO_GREN = 64 };   /* layers (KICK is the rumble kick) */
+enum { TEKNO_KICK = 1, TEKNO_TOMS = 2, TEKNO_ROLL = 4, TEKNO_HATS = 8, TEKNO_CLAP = 16, TEKNO_ACID = 32, TEKNO_GREN = 64, TEKNO_PERC = 128 };   /* layers (KICK is the rumble kick) */
 enum { TEKNO_LANE_TOMS, TEKNO_LANE_HATS, TEKNO_LANE_CLAP, TEKNO_LANES };   /* the patterned layers */
 enum { TEKNO_STEPS = 16, TEKNO_RATIOS = 48 * 8 + 1 };     /* pitch ratios: 0..48 semitones in eighths */
 enum { TEKNO_VOWELS = 65 };                               /* the vowel path U O A E I in 64 steps */
@@ -38,6 +38,18 @@ struct tekno_gren {
     float base_hz, space, r, morph;              /* the first filter; the ratio up to the next; 1/Q; the trapezoid's steepness */
     float move_oct, level;                       /* the bars' sweep, octaves each way; output */
     float fine;                                  /* FINE: semitones added to its note */
+};
+/* PERC, after Korg's Electribe ER-1: two synth percussion voices, a simple oscillator each whose pitch
+ * MOD makes the sound (a drop: bloops and zaps; a rise; a trill; random bleeps; noise), A ring-modulated
+ * by B's oscillator for metal */
+enum { TEKNO_PERC_SINE, TEKNO_PERC_TRI, TEKNO_PERC_SQUARE, TEKNO_PERC_SAW };
+enum { TEKNO_MOD_OFF, TEKNO_MOD_DROP, TEKNO_MOD_RISE, TEKNO_MOD_TRILL, TEKNO_MOD_TRILL_FAST, TEKNO_MOD_RANDOM,
+       TEKNO_MOD_RANDOM_FAST, TEKNO_MOD_NOISE, TEKNO_MODS };
+struct tekno_perc_voice {
+    volatile uint8_t wave, mod;
+    volatile uint32_t inc, inc_low;          /* the note; the note DPTH below it (RISE starts there) */
+    volatile int32_t depth, decay_k;         /* Q16 semitones; Q30 a sample */
+    volatile uint32_t lfo_inc;               /* TRILL / RANDOM: Q32 turns every 16 samples */
 };
 enum { TEKNO_GATE_DRONE, TEKNO_GATE_4THS, TEKNO_GATE_8THS, TEKNO_GATE_16THS, TEKNO_GATE_GALLOP, TEKNO_GATES };
 
@@ -98,6 +110,11 @@ struct tekno_params {
     /* GRENADIER: the gate; the sweep's rate, 0 half a beat .. 3 a bar .. 6 eight bars (one sweep every 2 << rate steps) */
     volatile uint8_t gren_gate, gren_rate;
     struct tekno_gren gren;
+    /* PERC: its bar of steps (bit 1 voice A, 2 voice B, 4 accented; copied in at the next bar), the voices */
+    volatile uint8_t perc_want[TEKNO_STEPS];
+    volatile uint8_t perc_dirty;
+    struct tekno_perc_voice perc[2];
+    volatile int32_t perc_ring, perc_level, perc_drop_k;   /* Q15; Q15; Q30 every 16 samples */
     uint32_t ratio[TEKNO_RATIOS];            /* 2^(i/96), Q16 (control fills it once) */
     int16_t vowel[TEKNO_VOWELS][3][4];       /* per place, the four bands' SVF f, damping, level (Q15) */
 };

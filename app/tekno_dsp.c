@@ -160,6 +160,30 @@ INLINE int32_t svf(struct noise_voice *v, int32_t x, int32_t f, int32_t damp, un
     v->band = clamp(v->band + mul15(f, high), -131072, 131072);
     return band ? v->band : high;
 }
+/* PERC: two ER-1-style voices (see tekno.h) */
+static struct { uint32_t phase, base, inc, lfo; int32_t env, penv, pitch; uint8_t on, mod, wave; } pv[2];
+static uint8_t perc_steps[TEKNO_STEPS];
+static FM1_AUDIO_CODE void perc_hit(unsigned v, unsigned accent)
+{
+    const struct tekno_perc_voice *p = &tekno.perc[v];
+    pv[v].mod = p->mod; pv[v].wave = p->wave;
+    pv[v].base = p->mod == TEKNO_MOD_RISE ? p->inc_low : p->inc;
+    pv[v].penv = ONE30; pv[v].lfo = 0;
+    pv[v].pitch = p->mod == TEKNO_MOD_DROP ? p->depth : 0;
+    if (p->mod == TEKNO_MOD_RANDOM || p->mod == TEKNO_MOD_RANDOM_FAST) pv[v].pitch = (int32_t)(((int64_t)p->depth * (noise() >> 16)) >> 16);
+    pv[v].inc = pitched(pv[v].base, pv[v].pitch);
+    pv[v].env = accent ? ONE30 : ONE30 / 10 * 6; pv[v].on = 1;
+    if (!v && !pv[1].on) pv[1].inc = tekno.perc[1].inc;   /* (A's ring needs B's oscillator running) */
+}
+INLINE int32_t perc_osc(uint32_t ph, unsigned wave)
+{
+    switch (wave) {
+    case TEKNO_PERC_TRI: { int32_t x = (int32_t)(ph >> 15) - 65536; return (x < 0 ? -x : x) - 32768; }
+    case TEKNO_PERC_SQUARE: return ph & 0x80000000U ? 26000 : -26000;
+    case TEKNO_PERC_SAW: return (int32_t)(ph >> 16) - 32768;
+    default: return sine(ph);
+    }
+}
 static FM1_AUDIO_CODE void tom_hit(unsigned v, unsigned accent)
 {
     struct drum *t = &tom[v];
@@ -180,6 +204,7 @@ static FM1_AUDIO_CODE void fire(unsigned p, uint32_t delay)
                 if ((dirty >> l) & 1U) for (unsigned i = 0; i < TEKNO_STEPS; ++i) lanes[l][i] = tekno.lane_want[l][i];
             tekno.lane_dirty = 0;
         }
+        if (tekno.perc_dirty) { for (unsigned i = 0; i < TEKNO_STEPS; ++i) perc_steps[i] = tekno.perc_want[i]; tekno.perc_dirty = 0; }
         if (tekno.acid_dirty) { for (unsigned i = 0; i < TEKNO_STEPS; ++i) acid_steps[i] = tekno.acid_want[i]; tekno.acid_dirty = 0; }
         tekno_bar = (uint8_t)((p >> 4) & 7U);
     }
@@ -193,6 +218,10 @@ static FM1_AUDIO_CODE void fire(unsigned p, uint32_t delay)
     if ((layers & TEKNO_TOMS) && (toms[s] & 3U)) tom_hit((toms[s] & 3U) == 2U, (toms[s] & 4U) != 0);
     if ((layers & TEKNO_HATS) && (lanes[TEKNO_LANE_HATS][s] & 3U)) hat_hit(lanes[TEKNO_LANE_HATS][s]);
     if ((layers & TEKNO_CLAP) && (lanes[TEKNO_LANE_CLAP][s] & 3U)) clap_hit(lanes[TEKNO_LANE_CLAP][s]);
+    if ((layers & TEKNO_PERC) && (perc_steps[s] & 3U)) {   /* PERC: A, B or both */
+        if (perc_steps[s] & 1U) perc_hit(0, (perc_steps[s] & 4U) != 0);
+        if (perc_steps[s] & 2U) perc_hit(1, (perc_steps[s] & 4U) != 0);
+    }
     /* ACID: a note, a tie (the last note held on), or a rest. The gate closes a little past half the
      * step, unless the note slides into the next or the next is tied to it (a division, once a step) */
     if (layers & TEKNO_ACID) {
@@ -221,7 +250,7 @@ static FM1_AUDIO_CODE void fire(unsigned p, uint32_t delay)
 FM1_AUDIO_CODE void tekno_render(int32_t *bus)
 {
     if (!dv.ready || !tekno.ratio[0]) return;
-    unsigned any = queued || tekno_acid_sounding() || tekno_gren_sounding() || kick[0].on || kick[1].on || tom[0].on || tom[1].on || bass.on || hat.on || clap.on;
+    unsigned any = queued || tekno_acid_sounding() || tekno_gren_sounding() || kick[0].on || kick[1].on || pv[0].on || pv[1].on || tom[0].on || tom[1].on || bass.on || hat.on || clap.on;
     if (any) quiet = 0; else if (quiet < 400U) ++quiet;
     if (quiet >= 400U) { stepq += rate_q24 * N; now += N; return; }   /* ~1 s silent: rest */
     const int32_t dk = tekno.kick_decay_k, pk = tekno.kick_pitch_k, tk = tekno.tom_decay_k, tpk = tekno.tom_pitch_k;
@@ -320,6 +349,39 @@ FM1_AUDIO_CODE void tekno_render(int32_t *bus)
             }
         }
         t = mul15(t, tlevel);
+        /* PERC: the pitch MOD every 16 samples, then the two oscillators, A ring-modulated by B */
+        if (pv[0].on || pv[1].on) {
+            if (update) for (unsigned v = 0; v < 2; ++v) {
+                const struct tekno_perc_voice *p = &tekno.perc[v];
+                uint32_t was = pv[v].lfo;
+                pv[v].lfo += p->lfo_inc;
+                switch (pv[v].mod) {
+                case TEKNO_MOD_DROP: pv[v].penv = mul30(pv[v].penv, tekno.perc_drop_k); pv[v].pitch = (int32_t)(((int64_t)p->depth * pv[v].penv) >> 30); break;
+                case TEKNO_MOD_RISE: pv[v].penv = mul30(pv[v].penv, tekno.perc_drop_k); pv[v].pitch = p->depth - (int32_t)(((int64_t)p->depth * pv[v].penv) >> 30); break;
+                case TEKNO_MOD_TRILL: case TEKNO_MOD_TRILL_FAST: pv[v].pitch = pv[v].lfo & 0x80000000U ? p->depth : 0; break;
+                case TEKNO_MOD_RANDOM: case TEKNO_MOD_RANDOM_FAST:
+                    if (pv[v].lfo < was) pv[v].pitch = (int32_t)(((int64_t)p->depth * (noise() >> 16)) >> 16);
+                    break;
+                case TEKNO_MOD_NOISE: pv[v].pitch = (int32_t)(((int64_t)p->depth * (noise() >> 16)) >> 16); break;
+                default: pv[v].pitch = 0; break;
+                }
+                if (pv[v].on) pv[v].inc = pitched(pv[v].base, pv[v].pitch);
+            }
+            int32_t oa = perc_osc(pv[0].phase, pv[0].wave), ob = perc_osc(pv[1].phase, pv[1].wave), y = 0;
+            pv[0].phase += pv[0].inc; pv[1].phase += pv[1].inc;
+            if (pv[0].on) {   /* A, ring-modulated by B's oscillator by RING */
+                oa += mul15(mul15(oa, ob) - oa, tekno.perc_ring);
+                y += mul15(oa, pv[0].env >> 15);
+                pv[0].env = mul30(pv[0].env, tekno.perc[0].decay_k);
+                if (pv[0].env < (1 << 16)) pv[0].on = 0;
+            }
+            if (pv[1].on) {
+                y += mul15(ob, pv[1].env >> 15);
+                pv[1].env = mul30(pv[1].env, tekno.perc[1].decay_k);
+                if (pv[1].env < (1 << 16)) pv[1].on = 0;
+            }
+            t += mul15(y, tekno.perc_level);
+        }
         /* HATS, through the FLANGE: the delay swept between 0.2 ms and up to ~4 ms, on the bars */
         int32_t h = 0;
         if (hat.on) {
