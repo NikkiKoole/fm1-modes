@@ -91,7 +91,8 @@
  *     pattern (16 per instrument, all seven layers; "hold = scope" as in docs/GROOVEBOX-MANUAL.md).
  *     Unheld, the white keys come free (for DROP/BUILD, mutes, fills). Keep "press again" too.
  *     (Also weighed: a PATTERNS page of knobs, one per lane; banks flipped by a button.)
- *   - SHOW WHAT EACH EFFECT IS ON: the screen doesn't say it. SWEEP is the acid's, MOVE
+ *   - SHOW WHAT EACH EFFECT IS ON: mostly DONE (the effects row says which are on, a white bar under
+ *     the pads says what a page is on). Left: the FX mode's rack. What it was: SWEEP is the acid's, MOVE
  *     grenadier's, FLANGE the hats', PHASER the percussion's (toms, hats, clap), VOWEL the whole
  *     mix (the kick's sub kept out), and the FX mode's rack only what its CR78 SEND gives it.
  *     E.g. light the layer boxes an effect page reaches, or group the pages by what they are on
@@ -556,20 +557,28 @@ static void draw(uint32_t now)
         if (pattern[shown_lane] != pattern_playing[shown_lane] && blink) line[0] = 0;
         px_print(line, 2, 40, lane_color[shown_lane][0]);
     }
-    if (tekno.vow_mix) {   /* VOWEL on: the vowel it is on now, large-ish, right */
-        int at = (int)tekno_vowel_at;
-        px_print_scaled(vowel_name(at * 100 / ((TEKNO_VOWELS - 1) * 256)), 70, 41, 2, PX_PINK);
+    /* the effects row: a box each, lit in its colour when the effect is on, a mark under it riding its
+     * sweep (PHASER, FLANGE, the acid's SWEEP, grenadier's MOVE, VOWEL); VOWEL's vowel large on the right */
+    {
+        static const char *const fx_name[5] = {"PH", "FL", "SW", "MV", "VW"};
+        static const uint8_t fx_color[5] = {PX_PINK, PX_WHITE, PX_GREEN, PX_RED, PX_GOLD};
+        const unsigned fx_on[5] = {tekno.ph_mix != 0, tekno.fl_mix != 0, knob[P_SWEEP][0] != 0,
+                                   (tekno.want & TEKNO_GREN) && knob[P_MOVE][0], tekno.vow_mix != 0};
+        const uint16_t fx_at[5] = {tekno_lfo, tekno_flfo, tekno_alfo, tekno_glfo, tekno_vlfo};
+        for (unsigned e = 0; e < 5; ++e) {
+            int x = 2 + (int)e * 13;
+            px_rect(x, 45, 12, 7, fx_on[e] ? fx_color[e] : PX_DUSK);
+            px_print(fx_name[e], x + 3, 46, fx_on[e] ? PX_NIGHT : PX_SLATE);
+            if (fx_on[e]) px_rect(x + (int)((uint32_t)fx_at[e] * 11U >> 16), 52, 2, 1, fx_color[e]);
+        }
+        if (tekno.vow_mix) {
+            int at = (int)tekno_vowel_at;
+            px_print_scaled(vowel_name(at * 100 / ((TEKNO_VOWELS - 1) * 256)), 71, 42, 2, PX_GOLD);
+        }
     }
-    /* the phaser's sweep, and the eight bars */
-    int w = (int)((uint32_t)tekno_lfo * 62U >> 16);   /* (short of the vowel's corner) */
-    px_rect(2, 47, 64, 2, PX_DUSK);
-    px_rect(2 + w, 46, 2, 4, PX_PINK);
-    if (tekno.fl_mix) px_rect(2 + (int)((uint32_t)tekno_flfo * 62U >> 16), 46, 2, 4, PX_WHITE);
-    if ((tekno.want & TEKNO_GREN) && knob[P_MOVE][0]) px_rect(2 + (int)((uint32_t)tekno_glfo * 62U >> 16), 46, 2, 4, PX_RED);
-    if (knob[P_SWEEP][0]) px_rect(2 + (int)((uint32_t)tekno_alfo * 62U >> 16), 46, 2, 4, PX_GREEN);
-    for (unsigned b = 0; b < 8; ++b) px_rect(2 + (int)b * 5, 52, 4, 3, cr78_running && b == tekno_bar ? PX_WHITE : PX_DUSK);
+    for (unsigned b = 0; b < 8; ++b) px_rect(2 + (int)b * 5, 57, 4, 3, cr78_running && b == tekno_bar ? PX_WHITE : PX_DUSK);
     strcpy(line, ""); px_number((int)groove_tempo_current(), line); strcat(line, " BPM");
-    px_print(line, 46, 51, PX_SLATE);
+    px_print(line, 46, 56, PX_SLATE);
     px_flash_draw(now);
 }
 static void leds(uint32_t now)
