@@ -2,21 +2,23 @@
 /* TEKNO: 90s free-party tekno (French hardtek, Czech tribe), played live. See tekno.c.
  * Its own voices (tekno_dsp.c), on the FM-1's clock: a RUMBLE KICK whose long tuned tail is the
  * bass, or a ROLL (a short kick on the beat, bass notes on the sixteenths between), two tuned TOMS
- * rolling on the sixteenths, and a PHASER locked to the bars over the toms. */
+ * rolling on the sixteenths, HATS and a CLAP, and a PHASER locked to the bars over all the percussion. */
 #ifndef FM1_TEKNO_H
 #define FM1_TEKNO_H
 #include "fm1.h"
 
-enum { TEKNO_KICK = 1, TEKNO_TOMS = 2, TEKNO_ROLL = 4 };   /* layers (KICK is the rumble kick; ROLL a short kick and a rolling bass) */
+enum { TEKNO_KICK = 1, TEKNO_TOMS = 2, TEKNO_ROLL = 4, TEKNO_HATS = 8, TEKNO_CLAP = 16 };   /* layers (KICK is the rumble kick) */
+enum { TEKNO_LANE_TOMS, TEKNO_LANE_HATS, TEKNO_LANE_CLAP, TEKNO_LANES };   /* the patterned layers */
 enum { TEKNO_STEPS = 16, TEKNO_RATIOS = 48 * 8 + 1 };     /* pitch ratios: 0..48 semitones in eighths */
 
 /* Control writes whole words; audio only reads (except the readback at the end). */
 struct tekno_params {
     volatile uint8_t engaged;                /* the mode owns the output: the stock song is silent under it */
     volatile uint8_t want;                   /* layers asked for; they change on the next bar */
-    /* TOMS: the bar's sixteen steps, 0 rest, 1 high, 2 low, | 4 accented (copied in at the next bar) */
-    volatile uint8_t toms_want[TEKNO_STEPS];
-    volatile uint8_t toms_dirty;             /* the pattern above is new */
+    /* each lane's bar of sixteen steps, copied in at the next bar: 0 rest, | 4 accented, and
+     * TOMS 1 high, 2 low; HATS 1 closed, 2 open; CLAP 1 a clap */
+    volatile uint8_t lane_want[TEKNO_LANES][TEKNO_STEPS];
+    volatile uint8_t lane_dirty;             /* bit l: lane l's pattern above is new (audio clears it) */
     /* KICK */
     volatile uint32_t kick_inc;              /* the tail's note, Q32 turns a sample */
     volatile int32_t kick_pitch;             /* the drop: Q16 semitones above the note at the hit */
@@ -35,7 +37,12 @@ struct tekno_params {
     /* TOMS: high and low */
     volatile uint32_t tom_inc[2];
     volatile int32_t tom_pitch, tom_pitch_k, tom_decay_k, tom_level, tom_skin;   /* skin: the head's noise, Q15 */
-    /* PHASER on the toms: one sweep every 16 << bars_shift steps */
+    /* HATS: noise through a high pass, closed or open */
+    volatile int32_t hat_f, hat_damp, hat_closed_k, hat_open_k, hat_level;   /* SVF Q15; Q30 a sample; Q15 */
+    /* CLAP: noise through a band pass, three quick bursts and a tail */
+    volatile int32_t clap_f, clap_damp, clap_tail_k, clap_level;   /* SVF Q15; Q30 a sample; Q15 */
+    volatile uint32_t clap_gap;              /* samples between the bursts */
+    /* PHASER on the percussion: one sweep every 16 << bars_shift steps */
     volatile int32_t ph_depth, ph_feedback, ph_mix;   /* Q15 */
     volatile uint8_t ph_bars_shift;          /* 0 one bar, 1 two, 2 four, 3 eight */
     uint32_t ratio[TEKNO_RATIOS];            /* 2^(i/96), Q16 (control fills it once) */

@@ -1,13 +1,17 @@
 /* SPDX-License-Identifier: GPL-3.0-only WITH GPL-3.0-linking-exception */
-/* TEKNO: 90s free-party tekno, played live (so far: the kicks, the toms, the phaser).
+/* TEKNO: 90s free-party tekno, played live (so far: the kicks, toms, hats, clap, the phaser).
  *
  *   black key 1       RUMBLE on / off: the rumble kick on every beat, its long tuned tail the bass
  *   black key 2       ROLL on / off: a short kick on the beat, bass notes rolling between (RUMBLE
  *                     and ROLL are one at a time: pressing one swaps them at the next bar)
  *   black key 3       TOMS on / off: two tuned toms rolling on the sixteenths
+ *   black key 4, 5    HATS, CLAP on / off
  *   white keys 1-4    the toms' pattern: RUN, GALLOP, TRIBE, SPARSE
+ *   white keys 5-8    the hats' pattern: 16THS, OFFBEAT, GALLOP, BUSY
+ *   white keys 9-12   the clap's pattern: BACKBEAT, OFFBEAT, BREAKER, FILL
  *   SELECT            pages: KICK (TUNE PUNCH DECAY DRIVE) · ROLL (FEEL DECAY CUTOFF DRIVE)
- *                     · TOMS (TUNE GAP DECAY LEVEL)
+ *                     · TOMS (TUNE GAP DECAY LEVEL) · HATS (TONE CLOSED OPEN LEVEL)
+ *                     · CLAP (TUNE SPREAD DECAY LEVEL)
  *                     · PHASER (DEPTH BARS FDBK MIX) · MIX (TEMPO LEVEL TONE CLICK)
  *   PLAY              play / stop (the first layer switched on starts it)
  *   HOME              back (it keeps playing)
@@ -16,7 +20,8 @@
  * The sound is set from three references (French hardtek / Czech tribe, 155-174 BPM): the kick's
  * low band holds almost flat for the whole beat, the tail tuned (A1), its 2nd and 3rd harmonics
  * ~22 dB down; the toms a whole tone apart (G#3 / F#3) on every sixteenth; a phaser on the
- * percussion sweeping once every four bars. */
+ * percussion sweeping once every four bars; hats short on every sixteenth (Desert Planet) or short
+ * on the beat and long on the & and a (Axe To Grind); claps broken across the bar (Axe Breaker). */
 #include "tekno.h"
 #include "pixel.h"
 #include "drumvoice.h"
@@ -24,40 +29,47 @@
 #include "cr78.h"
 #include <string.h>
 
-enum { PAGES = 5, PATTERNS = 4, FEELS = 4, LAYERS = 3 };
+enum { PAGES = 7, PATTERNS = 4, FEELS = 4, LAYERS = 5, LANES = TEKNO_LANES };
 static const struct px_page pages[PAGES] = {
     {"KICK", {"TUNE", "PNCH", "DCAY", "DRV"}},
     {"ROLL", {"FEEL", "DCAY", "CUT", "DRV"}},
     {"TOMS", {"TUNE", "GAP", "DCAY", "LVL"}},
+    {"HATS", {"TONE", "CLSD", "OPEN", "LVL"}},
+    {"CLAP", {"TUNE", "SPRD", "DCAY", "LVL"}},
     {"PHASER", {"DPTH", "BARS", "FDBK", "MIX"}},
     {"MIX", {"TMPO", "KICK", "TONE", "CLK"}},
 };
 /* knob values: KICK note (MIDI) punch decay drive; ROLL feel(0-3) decay cutoff drive; TOMS note gap decay level;
- * PHASER depth bars(0-3) fb mix; MIX - level tone click */
-enum { P_KICK, P_ROLL, P_TOMS, P_PHASER, P_MIX };
-static int16_t knob[PAGES][4] = {{33, 60, 15, 26}, {0, 40, 45, 40}, {56, 2, 45, 45}, {80, 2, 50, 50}, {0, 62, 62, 30}};
-static const int16_t lo[PAGES][4] = {{28, 0, 0, 0}, {0, 0, 0, 0}, {48, 1, 0, 0}, {0, 0, 0, 0}, {0, 0, 0, 0}};
-static const int16_t hi[PAGES][4] = {{39, 100, 100, 100}, {3, 100, 100, 100}, {72, 12, 100, 100}, {100, 3, 95, 100}, {0, 100, 100, 100}};
+ * HATS tone closed open level; CLAP tune spread decay level; PHASER depth bars(0-3) fb mix; MIX - level tone click */
+enum { P_KICK, P_ROLL, P_TOMS, P_HATS, P_CLAP, P_PHASER, P_MIX };
+static int16_t knob[PAGES][4] = {{33, 60, 15, 26}, {0, 40, 45, 40}, {56, 2, 45, 45}, {50, 30, 50, 50}, {40, 40, 40, 50},
+                                 {80, 2, 50, 50}, {0, 62, 62, 30}};
+static const int16_t lo[PAGES][4] = {{28, 0, 0, 0}, {0, 0, 0, 0}, {48, 1, 0, 0}, {0, 0, 0, 0}, {0, 0, 0, 0}, {0, 0, 0, 0}, {0, 0, 0, 0}};
+static const int16_t hi[PAGES][4] = {{39, 100, 100, 100}, {3, 100, 100, 100}, {72, 12, 100, 100}, {100, 100, 100, 100},
+                                     {100, 100, 100, 100}, {100, 3, 95, 100}, {0, 100, 100, 100}};
 /* ROLL's feels: which sixteenths after the kick get a bass note (bit 1 e, 2 &, 3 a) */
 static const struct { const char *name; uint8_t mask; } feels[FEELS] = {
     {"GALLOP", 0x0C}, {"ROLL", 0x0E}, {"OFFBEAT", 0x04}, {"PUSH", 0x08}};
 /* the layers on the black keys, in order */
-static const uint8_t layer_bit[LAYERS] = {TEKNO_KICK, TEKNO_ROLL, TEKNO_TOMS};
-static const char *const layer_name[LAYERS] = {"RMBL", "ROLL", "TOMS"};
-static const uint8_t layer_color[LAYERS] = {PX_EMBER, PX_GOLD, PX_CYAN};
-/* the toms: H / L high / low, upper case accented, '.' rest */
-static const struct { const char *name, *steps; } patterns[PATTERNS] = {
-    {"RUN", "HlhlHlhlHlhlHlhl"},
-    {"GALLOP", "H.hlH.hlH.hlHlhl"},
-    {"TRIBE", "L.hlh.HlL.hlhlHh"},
-    {"SPARSE", "..h...l...h..hl."},
+static const uint8_t layer_bit[LAYERS] = {TEKNO_KICK, TEKNO_ROLL, TEKNO_TOMS, TEKNO_HATS, TEKNO_CLAP};
+static const char *const layer_name[LAYERS] = {"RUMBLE", "ROLL", "TOMS", "HATS", "CLAP"};
+static const uint8_t layer_color[LAYERS] = {PX_EMBER, PX_GOLD, PX_CYAN, PX_WHITE, PX_PINK};
+/* the patterns, a lane each: '.' rest, upper case accented.
+ * TOMS h / l high / low; HATS x / o closed / open; CLAP x a clap */
+static const char *const lane_name[LANES] = {"TOMS", "HATS", "CLAP"};
+static const uint8_t lane_layer[LANES] = {2, 3, 4};   /* (index in the layers) */
+static const struct { const char *name, *steps; } patterns[LANES][PATTERNS] = {
+    {{"RUN", "HlhlHlhlHlhlHlhl"}, {"GALLOP", "H.hlH.hlH.hlHlhl"}, {"TRIBE", "L.hlh.HlL.hlhlHh"}, {"SPARSE", "..h...l...h..hl."}},
+    {{"16THS", "xxXxxxXxxxXxxxXx"}, {"OFFBEAT", "..O...O...O...O."}, {"GALLOP", "x.Oox.Oox.Oox.Oo"}, {"BUSY", "xxOxxxOxxxOxxxOx"}},
+    {{"BACKBEAT", "....X.......X..."}, {"OFFBEAT", "..x...x...x...x."}, {"BREAKER", ".x.x..X..x.x..X."}, {"FILL", "....X.......XxXx"}},
 };
-static const char *const pad_name[PX_PADS] = {"RMB", "RLL", "TOM", "", "", "", "", "", "", "", ""};
+static const char *const pad_name[PX_PADS] = {"RMB", "RLL", "TOM", "HAT", "CLP", "", "", "", "", "", ""};
 static const char *const note_name[12] = {"C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"};
 static const uint8_t white_keys[16] = {0, 2, 4, 6, 7, 9, 11, 12, 14, 16, 18, 19, 21, 23, 24, 26};
 static const uint8_t black_keys[PX_PADS] = {1, 3, 5, 8, 10, 13, 15, 17, 20, 22, 25};
 
-static unsigned active, opened_once, page, pattern, pattern_playing, full_redraw;
+static unsigned active, opened_once, page, full_redraw, shown_lane;
+static uint8_t pattern[LANES], pattern_playing[LANES];
 static uint32_t prev_buttons, prev_keys, last_ms, led_state;
 static int clamp(int v, int lo_, int hi_) { return v < lo_ ? lo_ : v > hi_ ? hi_ : v; }
 
@@ -115,6 +127,24 @@ static void apply(void)
     t->tom_decay_k = per_sample(20.0f + 2.8f * (float)k[2]);                            /* 20..300 ms */
     t->tom_level = k[3] * 110;
     t->tom_skin = 9000;
+    k = knob[P_HATS];
+    {
+        float hz = 3000.0f * exp2f_((float)k[0] * 0.02f), x = 3.1415927f * hz / 44100.0f;   /* 3 .. 12 kHz */
+        t->hat_f = (int32_t)(2.0f * (x - x * x * x / 6.0f) * 32768.0f);
+        t->hat_damp = (int32_t)(1.3f * 32768.0f);
+    }
+    t->hat_closed_k = per_sample(4.0f + 0.4f * (float)k[1]);                              /* 4..44 ms */
+    t->hat_open_k = per_sample(20.0f + 1.6f * (float)k[2]);                               /* 20..180 ms */
+    t->hat_level = k[3] * 55;
+    k = knob[P_CLAP];
+    {
+        float hz = 600.0f * exp2f_((float)k[0] * 0.025f), x = 3.1415927f * hz / 44100.0f;    /* 600 Hz .. 3.4 kHz */
+        t->clap_f = (int32_t)(2.0f * (x - x * x * x / 6.0f) * 32768.0f);
+        t->clap_damp = (int32_t)(0.7f * 32768.0f);
+    }
+    t->clap_gap = (uint32_t)((4.0f + 0.12f * (float)k[1]) * 44.1f);                       /* 4..16 ms */
+    t->clap_tail_k = per_sample(15.0f + 1.5f * (float)k[2]);                              /* 15..165 ms */
+    t->clap_level = k[3] * 320;
     k = knob[P_PHASER];
     t->ph_depth = k[0] * 327;
     t->ph_bars_shift = (uint8_t)k[1];
@@ -125,15 +155,17 @@ static void apply(void)
     t->kick_tone = lowpass(120.0f * exp2f_((float)k[2] * 0.06f));                       /* 120 Hz .. 7.7 kHz */
     t->kick_click = k[3] * 200;
 }
-static void load_pattern(unsigned p)
+static uint8_t step_code(char c)
 {
-    const char *s = patterns[p].steps;
-    for (unsigned i = 0; i < TEKNO_STEPS; ++i) {
-        char c = s[i];
-        tekno.toms_want[i] = (uint8_t)(c == 'H' || c == 'h' ? 1 : c == 'L' || c == 'l' ? 2 : 0) | (c == 'H' || c == 'L' ? 4 : 0);
-    }
-    tekno.toms_dirty = 1;
-    pattern = p;
+    char l = c >= 'A' && c <= 'Z' ? (char)(c + 32) : c;
+    return (uint8_t)((l == 'h' || l == 'x' ? 1 : l == 'l' || l == 'o' ? 2 : 0) | (c >= 'A' && c <= 'Z' ? 4 : 0));
+}
+static void load_pattern(unsigned lane, unsigned p)
+{
+    const char *s = patterns[lane][p].steps;
+    for (unsigned i = 0; i < TEKNO_STEPS; ++i) tekno.lane_want[lane][i] = step_code(s[i]);
+    tekno.lane_dirty = (uint8_t)(tekno.lane_dirty | (1U << lane));
+    pattern[lane] = (uint8_t)p;
 }
 static void start_if_stopped(void)
 {
@@ -169,28 +201,34 @@ static void draw(uint32_t now)
     px_cls(PX_NIGHT);
     px_chrome_pads("TEKNO", pages, PAGES, page, value, pad_name, lit);
     px_print("TEKNO", 2, 1, PX_GOLD);
-    /* the layers */
+    /* the layers, three letters each */
     for (unsigned l = 0; l < LAYERS; ++l) {
         unsigned on = (lit >> l) & 1U;
-        int x = 1 + (int)l * 26;
-        px_rect(x, 9, 25, 7, on ? layer_color[l] : PX_DUSK);
-        px_print(layer_name[l], x + 5, 10, on ? PX_NIGHT : PX_SLATE);
+        int x = 1 + (int)l * 16;
+        px_rect(x, 9, 15, 7, on ? layer_color[l] : PX_DUSK);
+        px_print(pad_name[l], x + 2, 10, on ? PX_NIGHT : PX_SLATE);
     }
-    /* the toms' pattern: high above, low below, accents tall; the playhead */
-    const char *steps = patterns[pattern].steps;
+    /* the three lanes, a row each (accents tall; toms' low and hats' open hits in their second colour),
+     * dark when the layer is off; the playhead below */
     unsigned step = tekno_step;
-    for (unsigned s = 0; s < 16; ++s) {
-        int x = 2 + (int)s * 5;
-        char c = steps[s];
-        unsigned acc = c == 'H' || c == 'L', high = c == 'H' || c == 'h', any = c != '.';
-        unsigned color = cr78_running && s == step ? PX_WHITE : (s & 3U) ? PX_SLATE : PX_GOLD;
-        if (any) px_rect(x, high ? (acc ? 20 : 22) : 28, 4, acc ? 6 : 4, high ? PX_CYAN : PX_GREEN);
-        px_rect(x, 34, 4, 1, color);
+    static const uint8_t lane_color[LANES][2] = {{PX_CYAN, PX_GREEN}, {PX_WHITE, PX_PINK}, {PX_GOLD, PX_GOLD}};
+    for (unsigned lane = 0; lane < LANES; ++lane) {
+        const char *steps = patterns[lane][pattern[lane]].steps;
+        unsigned on = (tekno.want & layer_bit[lane_layer[lane]]) != 0;
+        for (unsigned s = 0; s < 16; ++s) {
+            uint8_t code = step_code(steps[s]);
+            if (!(code & 3U)) continue;
+            int x = 2 + (int)s * 5, y = 18 + (int)lane * 6;
+            unsigned color = on ? lane_color[lane][(code & 3U) == 2U] : PX_DUSK;
+            if (code & 4U) px_rect(x, y, 4, 4, color); else px_rect(x, y + 2, 4, 2, color);
+        }
     }
+    for (unsigned s = 0; s < 16; ++s)
+        px_rect(2 + (int)s * 5, 35, 4, 1, cr78_running && s == step ? PX_WHITE : (s & 3U) ? PX_SLATE : PX_GOLD);
     char line[24];
-    strcpy(line, "TOMS "); strcat(line, patterns[pattern].name);
-    if (pattern != pattern_playing && blink) line[0] = 0;
-    px_print(line, 2, 37, PX_CYAN);
+    strcpy(line, lane_name[shown_lane]); strcat(line, " "); strcat(line, patterns[shown_lane][pattern[shown_lane]].name);
+    if (pattern[shown_lane] != pattern_playing[shown_lane] && blink) line[0] = 0;
+    px_print(line, 2, 38, lane_color[shown_lane][0]);
     /* the phaser's sweep, and the eight bars */
     int w = (int)((uint32_t)tekno_lfo * 76U >> 16);
     px_rect(2, 45, 76, 3, PX_DUSK);
@@ -209,8 +247,9 @@ static void leds(uint32_t now)
         if (on != will && blink) on = !on;
         layers |= on << l;
     }
-    uint32_t whites = 1U << pattern;
-    if (pattern != pattern_playing && blink) whites = 1U << pattern_playing;
+    uint32_t whites = 0;   /* each lane's pattern, the one waiting blinking */
+    for (unsigned lane = 0; lane < LANES; ++lane)
+        whites |= 1U << (4U * lane + (pattern[lane] != pattern_playing[lane] && blink ? pattern_playing[lane] : pattern[lane]));
     uint32_t all = whites | (layers << 16);
     for (unsigned s = 0; s < 16; ++s)
         if (((all ^ led_state) >> s) & 1U) fm1_led_set(PX_KEY_LED + white_keys[s], (all >> s) & 1U);
@@ -231,7 +270,7 @@ int tekno_control(const struct fm1_controls *c)
         dv_build_tables();
         if (!opened_once) {   /* the first time: the ratios, the sound, a tempo of the scene */
             for (unsigned i = 0; i < TEKNO_RATIOS; ++i) tekno.ratio[i] = (uint32_t)(exp2f_((float)i / 96.0f) * 65536.0f);
-            load_pattern(0); pattern_playing = 0;
+            for (unsigned lane = 0; lane < LANES; ++lane) { load_pattern(lane, 0); pattern_playing[lane] = 0; }
             groove_tempo_edit(165 - (int)groove_tempo_current());
             opened_once = 1;
         }
@@ -243,9 +282,8 @@ int tekno_control(const struct fm1_controls *c)
     }
     if (home) { px_leds_off(); active = 0; return 2; }
     unsigned changed = 0;
-    if (tekno_step == 0 || !cr78_running) {   /* (the audio side took the pattern at the bar) */
-        if (!tekno.toms_dirty && pattern_playing != pattern) { pattern_playing = pattern; changed = 1; }
-    }
+    for (unsigned lane = 0; lane < LANES; ++lane)   /* the audio side took the pattern at the bar */
+        if (!((tekno.lane_dirty >> lane) & 1U) && pattern_playing[lane] != pattern[lane]) { pattern_playing[lane] = pattern[lane]; changed = 1; }
     /* black keys: the layers */
     for (unsigned i = 0; i < LAYERS; ++i) {
         if (!((down >> black_keys[i]) & 1U)) continue;
@@ -256,14 +294,18 @@ int tekno_control(const struct fm1_controls *c)
         tekno.want = want;
         tekno.engaged = want != 0;
         if (want & bit) start_if_stopped();
-        px_flash(i == 0 ? "RUMBLE" : i == 1 ? "ROLL" : "TOMS", now, 400U);
+        px_flash(layer_name[i], now, 400U);
         changed = 1;
     }
-    /* white keys 1-4: the toms' pattern */
-    for (unsigned s = 0; s < PATTERNS; ++s) {
+    /* white keys 1-12: the toms', hats' and clap's patterns, four each */
+    for (unsigned s = 0; s < LANES * PATTERNS; ++s) {
         if (!((down >> white_keys[s]) & 1U)) continue;
-        load_pattern(s);
-        px_flash(patterns[s].name, now, 500U);
+        unsigned lane = s / PATTERNS;
+        load_pattern(lane, s % PATTERNS);
+        shown_lane = lane;
+        static char text[24];
+        strcpy(text, lane_name[lane]); strcat(text, " "); strcat(text, patterns[lane][s % PATTERNS].name);
+        px_flash(text, now, 500U);
         changed = 1;
     }
     /* SELECT: pages */

@@ -1,5 +1,5 @@
 /* SPDX-License-Identifier: GPL-3.0-only WITH GPL-3.0-linking-exception */
-/* TEKNO audio: the rumble kick, the toms, the bar-locked phaser. Integer only, no division in the
+/* TEKNO audio: the kicks, the toms, hats and clap, the bar-locked phaser. Integer only, no division in the
  * sample loops, no calls outside the app's audio code, no struct copies or memset/memcpy.
  *
  * Timing: the FM-1's clock checks its steps once a block (128 samples), so a step is found up to a
@@ -46,7 +46,7 @@ static struct { uint32_t at; uint8_t pos; } queue[QUEUE];
 static volatile unsigned queued;
 static uint32_t now, rate_q24, stepq;   /* samples; Q24 steps a sample; Q24 steps into the 8-bar loop */
 static unsigned pos = POS_MASK;
-static uint8_t toms[TEKNO_STEPS];
+static uint8_t lanes[TEKNO_LANES][TEKNO_STEPS];
 
 FM1_AUDIO_CODE void tekno_clock(unsigned step, unsigned tempo, uint32_t late, unsigned restart)
 {
@@ -101,6 +101,28 @@ static FM1_AUDIO_CODE void bass_hit(int32_t level)
     bass.inc = pitched(bass.base, bass.pitch);
     bass.env = level; bass.on = 1;
 }
+/* HATS and CLAP: noise through a state-variable filter */
+struct noise_voice { int32_t env, peak, k, low, band; uint32_t t; uint8_t on; };
+static struct noise_voice hat, clap;
+enum { BURST_K = 1060300064 /* ~1.8 ms */ };
+static FM1_AUDIO_CODE void hat_hit(unsigned code)
+{
+    hat.k = (code & 3U) == 2U ? tekno.hat_open_k : tekno.hat_closed_k;   /* a closed hat chokes an open one */
+    hat.env = (code & 4U) ? ONE30 : ONE30 / 10 * 6; hat.on = 1;
+}
+static FM1_AUDIO_CODE void clap_hit(unsigned code)
+{
+    clap.peak = (code & 4U) ? ONE30 : ONE30 / 10 * 7;
+    clap.env = clap.peak; clap.t = 0; clap.on = 1;
+}
+INLINE uint32_t noise(void) { rng ^= rng << 13; rng ^= rng >> 17; rng ^= rng << 5; return rng; }
+INLINE int32_t svf(struct noise_voice *v, int32_t x, int32_t f, int32_t damp, unsigned band)
+{
+    v->low = clamp(v->low + mul15(f, v->band), -131072, 131072);
+    int32_t high = x - v->low - mul15(damp, v->band);
+    v->band = clamp(v->band + mul15(f, high), -131072, 131072);
+    return band ? v->band : high;
+}
 static FM1_AUDIO_CODE void tom_hit(unsigned v, unsigned accent)
 {
     struct drum *t = &tom[v];
@@ -115,9 +137,11 @@ static FM1_AUDIO_CODE void fire(unsigned p, uint32_t delay)
     stepq = (uint32_t)p << 24;
     if (!s) {   /* a bar: what was asked for comes in */
         tekno_layers = tekno.want;
-        if (tekno.toms_dirty) {
-            for (unsigned i = 0; i < TEKNO_STEPS; ++i) toms[i] = tekno.toms_want[i];
-            tekno.toms_dirty = 0;
+        unsigned dirty = tekno.lane_dirty;
+        if (dirty) {
+            for (unsigned l = 0; l < TEKNO_LANES; ++l)
+                if ((dirty >> l) & 1U) for (unsigned i = 0; i < TEKNO_STEPS; ++i) lanes[l][i] = tekno.lane_want[l][i];
+            tekno.lane_dirty = 0;
         }
         tekno_bar = (uint8_t)((p >> 4) & 7U);
     }
@@ -126,13 +150,16 @@ static FM1_AUDIO_CODE void fire(unsigned p, uint32_t delay)
     if ((layers & (TEKNO_KICK | TEKNO_ROLL)) && !(s & 3U)) kick_hit(delay, (layers & TEKNO_ROLL) != 0);
     if ((layers & TEKNO_ROLL) && ((tekno.roll_feel >> (s & 3U)) & 1U))
         bass_hit((s & 3U) == 2U ? ONE30 : (s & 3U) == 3U ? ONE30 / 10 * 8 : ONE30 / 10 * 7);   /* the & loudest */
+    const uint8_t *toms = lanes[TEKNO_LANE_TOMS];
     if ((layers & TEKNO_TOMS) && (toms[s] & 3U)) tom_hit((toms[s] & 3U) == 2U, (toms[s] & 4U) != 0);
+    if ((layers & TEKNO_HATS) && (lanes[TEKNO_LANE_HATS][s] & 3U)) hat_hit(lanes[TEKNO_LANE_HATS][s]);
+    if ((layers & TEKNO_CLAP) && (lanes[TEKNO_LANE_CLAP][s] & 3U)) clap_hit(lanes[TEKNO_LANE_CLAP][s]);
 }
 
 FM1_AUDIO_CODE void tekno_render(int32_t *bus)
 {
     if (!dv.ready || !tekno.ratio[0]) return;
-    unsigned any = queued || kick[0].on || kick[1].on || tom[0].on || tom[1].on || bass.on;
+    unsigned any = queued || kick[0].on || kick[1].on || tom[0].on || tom[1].on || bass.on || hat.on || clap.on;
     if (any) quiet = 0; else if (quiet < 400U) ++quiet;
     if (quiet >= 400U) { stepq += rate_q24 * N; now += N; return; }   /* ~1 s silent: rest */
     const int32_t dk = tekno.kick_decay_k, pk = tekno.kick_pitch_k, tk = tekno.tom_decay_k, tpk = tekno.tom_pitch_k;
@@ -141,6 +168,9 @@ FM1_AUDIO_CODE void tekno_render(int32_t *bus)
     const int32_t skin_level = tekno.tom_skin;
     const int32_t bk = tekno.roll_decay_k, bf = tekno.roll_f, bdamp = tekno.roll_damp;
     const int32_t bdrive = tekno.roll_drive, bnorm = tekno.roll_drive_norm, blevel = tekno.roll_level;
+    const int32_t hf = tekno.hat_f, hdamp = tekno.hat_damp, hlevel = tekno.hat_level;
+    const int32_t cf = tekno.clap_f, cdamp = tekno.clap_damp, ctail = tekno.clap_tail_k, clevel = tekno.clap_level;
+    const uint32_t cgap = tekno.clap_gap;
     const int32_t depth = tekno.ph_depth, fb = tekno.ph_feedback, mix = tekno.ph_mix;
     const unsigned shift = 4U - (tekno.ph_bars_shift & 3U);
     int32_t peak = tekno_peak;
@@ -221,7 +251,23 @@ FM1_AUDIO_CODE void tekno_render(int32_t *bus)
             }
         }
         t = mul15(t, tlevel);
-        /* PHASER over the toms: six allpasses swept once every 16 << bars steps, locked to the bar */
+        /* HATS */
+        if (hat.on) {
+            int32_t x = svf(&hat, (int32_t)(noise() >> 16) - 32768, hf, hdamp, 0);
+            hat.env = mul30(hat.env, hat.k);
+            if (hat.env < (1 << 16)) hat.on = 0;
+            t += mul15(mul15(x, hat.env >> 15), hlevel);
+        }
+        /* CLAP: three bursts `gap` apart, the last one rings on */
+        if (clap.on) {
+            uint32_t ct = clap.t++;
+            if (ct == cgap || ct == 2U * cgap) clap.env = clap.peak;
+            clap.env = mul30(clap.env, ct < 2U * cgap ? BURST_K : ctail);
+            if (ct > 2U * cgap && clap.env < (1 << 16)) clap.on = 0;
+            int32_t x = svf(&clap, (int32_t)(noise() >> 16) - 32768, cf, cdamp, 1);
+            t += mul15(mul15(x, clap.env >> 15), clevel);
+        }
+        /* PHASER over the percussion: six allpasses swept once every 16 << bars steps, locked to the bar */
         if (update) {
             uint32_t turns = stepq << shift;
             tekno_lfo = (uint16_t)(turns >> 16);
@@ -237,7 +283,9 @@ FM1_AUDIO_CODE void tekno_render(int32_t *bus)
             }
             t += mul15(in - t, mix);
         }
-        int32_t out = k + t;
+        /* the bus: a soft saturator, nearly straight at normal levels, rounding stacked hits off
+         * below 0.85 of full scale (the records were driven hard; this keeps the mode from clipping) */
+        int32_t out = mul15(tanh_q15(mul15(k + t, 38550 /* 1 / 0.85 */)), 27853 /* 0.85 */);
         int32_t a = out < 0 ? -out : out;
         if (a > peak) peak = a;
         bus[i] += out;
