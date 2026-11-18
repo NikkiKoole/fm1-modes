@@ -72,13 +72,14 @@ static uint32_t rng = 0x9e3779b9u;
 static int32_t ph_st[STAGES], ph_pv[STAGES], ph_coeff = 16384;
 enum { RELEASE_K = 1072525294 /* ~20 ms, Q30 */, FADE_STEP = 250 /* ~3 ms */, SKIN_K = 1072768440 /* ~25 ms */ };
 static int32_t skin_prev;
+enum { BASS_PITCH_K = 868323340 /* x0.81 every 16 samples: ~1.7 ms */ };
 
 INLINE uint32_t pitched(uint32_t base, int32_t pitch)
 {
     int32_t i = clamp(pitch >> 13, 0, TEKNO_RATIOS - 1);
     return (uint32_t)(((uint64_t)base * tekno.ratio[i]) >> 16);
 }
-static FM1_AUDIO_CODE void kick_hit(uint32_t delay)
+static FM1_AUDIO_CODE void kick_hit(uint32_t delay, unsigned roll)
 {
     struct drum *old = &kick[kick_last];
     if (old->on) old->fade = 32767;                 /* the next kick cuts the tail */
@@ -87,10 +88,18 @@ static FM1_AUDIO_CODE void kick_hit(uint32_t delay)
     k->phase = 0; k->base = tekno.kick_inc; k->pitch = tekno.kick_pitch;
     k->inc = pitched(k->base, k->pitch);
     k->env = ONE30; k->fade = 0; k->on = 1;
-    /* hold a beat and a bit: 4 steps + 2 ms (a division, once a beat) */
-    k->gate = rate_q24 ? (uint32_t)((4ULL << 24) / rate_q24) + 88U : 44100U;
+    /* RUMBLE: hold a beat and a bit, 4 steps + 2 ms; ROLL: 3/4 of a step, the bass comes next (a division, once a beat) */
+    k->gate = !rate_q24 ? 44100U : roll ? (uint32_t)((3ULL << 22) / rate_q24) : (uint32_t)((4ULL << 24) / rate_q24) + 88U;
     click_env = tekno.kick_click << 15;
     fx_kick(FX_KEY_CR78, delay);                    /* the duck and the PMP pad hear it */
+}
+/* the ROLL's bass: a saw through a low pass and a drive, a quick drop onto the note, a short decay */
+static struct { uint32_t phase, inc, base; int32_t pitch, env, low, band, x1, y1; uint8_t on; } bass;
+static FM1_AUDIO_CODE void bass_hit(int32_t level)
+{
+    bass.base = tekno.kick_inc; bass.pitch = 12 * 65536;   /* an octave's drop in a few ms: a pluck */
+    bass.inc = pitched(bass.base, bass.pitch);
+    bass.env = level; bass.on = 1;
 }
 static FM1_AUDIO_CODE void tom_hit(unsigned v, unsigned accent)
 {
@@ -114,20 +123,24 @@ static FM1_AUDIO_CODE void fire(unsigned p, uint32_t delay)
     }
     tekno_step = (uint8_t)s;
     unsigned layers = tekno_layers;
-    if ((layers & TEKNO_KICK) && !(s & 3U)) kick_hit(delay);
+    if ((layers & (TEKNO_KICK | TEKNO_ROLL)) && !(s & 3U)) kick_hit(delay, (layers & TEKNO_ROLL) != 0);
+    if ((layers & TEKNO_ROLL) && ((tekno.roll_feel >> (s & 3U)) & 1U))
+        bass_hit((s & 3U) == 2U ? ONE30 : (s & 3U) == 3U ? ONE30 / 10 * 8 : ONE30 / 10 * 7);   /* the & loudest */
     if ((layers & TEKNO_TOMS) && (toms[s] & 3U)) tom_hit((toms[s] & 3U) == 2U, (toms[s] & 4U) != 0);
 }
 
 FM1_AUDIO_CODE void tekno_render(int32_t *bus)
 {
     if (!dv.ready || !tekno.ratio[0]) return;
-    unsigned any = queued || kick[0].on || kick[1].on || tom[0].on || tom[1].on;
+    unsigned any = queued || kick[0].on || kick[1].on || tom[0].on || tom[1].on || bass.on;
     if (any) quiet = 0; else if (quiet < 400U) ++quiet;
     if (quiet >= 400U) { stepq += rate_q24 * N; now += N; return; }   /* ~1 s silent: rest */
     const int32_t dk = tekno.kick_decay_k, pk = tekno.kick_pitch_k, tk = tekno.tom_decay_k, tpk = tekno.tom_pitch_k;
     const int32_t dpos = tekno.kick_drive_pos, dneg = tekno.kick_drive_neg, dnorm = tekno.kick_drive_norm;
     const int32_t tone = tekno.kick_tone, klevel = tekno.kick_level, tlevel = tekno.tom_level;
     const int32_t skin_level = tekno.tom_skin;
+    const int32_t bk = tekno.roll_decay_k, bf = tekno.roll_f, bdamp = tekno.roll_damp;
+    const int32_t bdrive = tekno.roll_drive, bnorm = tekno.roll_drive_norm, blevel = tekno.roll_level;
     const int32_t depth = tekno.ph_depth, fb = tekno.ph_feedback, mix = tekno.ph_mix;
     const unsigned shift = 4U - (tekno.ph_bars_shift & 3U);
     int32_t peak = tekno_peak;
@@ -168,6 +181,27 @@ FM1_AUDIO_CODE void tekno_render(int32_t *bus)
         }
         tone_lp += mul15(k - tone_lp, tone);
         k = mul15(tone_lp, klevel);
+        /* ROLL's bass */
+        if (bass.on) {
+            if (update && bass.pitch) { bass.pitch = mul30(bass.pitch, BASS_PITCH_K); bass.inc = pitched(bass.base, bass.pitch); }
+            int32_t x = (int32_t)(bass.phase >> 16) - 32768;
+            bass.phase += bass.inc;
+            bass.low += mul15(bf, bass.band);
+            int32_t high = x - bass.low - mul15(bdamp, bass.band);
+            bass.band = clamp(bass.band + mul15(bf, high), -131072, 131072);
+            bass.low = clamp(bass.low, -131072, 131072);
+            int32_t y = bass.low;
+            if (bdrive) {
+                int32_t u = clamp((int32_t)(((int64_t)y * bdrive) >> 12), -262143, 262143);
+                y = mul15(tanh_q15(u), bnorm);
+            }
+            bass.env = mul30(bass.env, bk);
+            if (bass.env < (1 << 16)) bass.on = 0;
+            y = mul15(y, bass.env >> 15);
+            int32_t out = y - bass.x1 + (int32_t)(((int64_t)bass.y1 * 32735) >> 15);   /* DC block */
+            bass.x1 = y; bass.y1 = out;
+            k += mul15(out, blevel);
+        }
         /* TOMS */
         int32_t t = 0;
         for (unsigned v = 0; v < 2; ++v) {

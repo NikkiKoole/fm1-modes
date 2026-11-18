@@ -1,10 +1,13 @@
 /* SPDX-License-Identifier: GPL-3.0-only WITH GPL-3.0-linking-exception */
-/* TEKNO: 90s free-party tekno, played live (step 1: the rumble kick, the toms, the phaser).
+/* TEKNO: 90s free-party tekno, played live (so far: the kicks, the toms, the phaser).
  *
- *   black key 1       KICK on / off: the rumble kick on every beat, its tail the bass
- *   black key 2       TOMS on / off: two tuned toms rolling on the sixteenths
- *   white keys 1-4    the toms' pattern: ROLL, GALLOP, TRIBE, SPARSE
- *   SELECT            pages: KICK (TUNE PUNCH DECAY DRIVE) · TOMS (TUNE GAP DECAY LEVEL)
+ *   black key 1       RUMBLE on / off: the rumble kick on every beat, its long tuned tail the bass
+ *   black key 2       ROLL on / off: a short kick on the beat, bass notes rolling between (RUMBLE
+ *                     and ROLL are one at a time: pressing one swaps them at the next bar)
+ *   black key 3       TOMS on / off: two tuned toms rolling on the sixteenths
+ *   white keys 1-4    the toms' pattern: RUN, GALLOP, TRIBE, SPARSE
+ *   SELECT            pages: KICK (TUNE PUNCH DECAY DRIVE) · ROLL (FEEL DECAY CUTOFF DRIVE)
+ *                     · TOMS (TUNE GAP DECAY LEVEL)
  *                     · PHASER (DEPTH BARS FDBK MIX) · MIX (TEMPO LEVEL TONE CLICK)
  *   PLAY              play / stop (the first layer switched on starts it)
  *   HOME              back (it keeps playing)
@@ -21,25 +24,35 @@
 #include "cr78.h"
 #include <string.h>
 
-enum { PAGES = 4, PATTERNS = 4 };
+enum { PAGES = 5, PATTERNS = 4, FEELS = 4, LAYERS = 3 };
 static const struct px_page pages[PAGES] = {
     {"KICK", {"TUNE", "PNCH", "DCAY", "DRV"}},
+    {"ROLL", {"FEEL", "DCAY", "CUT", "DRV"}},
     {"TOMS", {"TUNE", "GAP", "DCAY", "LVL"}},
     {"PHASER", {"DPTH", "BARS", "FDBK", "MIX"}},
     {"MIX", {"TMPO", "KICK", "TONE", "CLK"}},
 };
-/* knob values: KICK note (MIDI) punch decay drive; TOMS note gap decay level; PHASER depth bars(0-3) fb mix; MIX - level tone click */
-static int16_t knob[PAGES][4] = {{33, 60, 15, 26}, {56, 2, 45, 45}, {80, 2, 50, 50}, {0, 70, 62, 30}};
-static const int16_t lo[PAGES][4] = {{28, 0, 0, 0}, {48, 1, 0, 0}, {0, 0, 0, 0}, {0, 0, 0, 0}};
-static const int16_t hi[PAGES][4] = {{39, 100, 100, 100}, {72, 12, 100, 100}, {100, 3, 95, 100}, {0, 100, 100, 100}};
+/* knob values: KICK note (MIDI) punch decay drive; ROLL feel(0-3) decay cutoff drive; TOMS note gap decay level;
+ * PHASER depth bars(0-3) fb mix; MIX - level tone click */
+enum { P_KICK, P_ROLL, P_TOMS, P_PHASER, P_MIX };
+static int16_t knob[PAGES][4] = {{33, 60, 15, 26}, {0, 40, 45, 40}, {56, 2, 45, 45}, {80, 2, 50, 50}, {0, 62, 62, 30}};
+static const int16_t lo[PAGES][4] = {{28, 0, 0, 0}, {0, 0, 0, 0}, {48, 1, 0, 0}, {0, 0, 0, 0}, {0, 0, 0, 0}};
+static const int16_t hi[PAGES][4] = {{39, 100, 100, 100}, {3, 100, 100, 100}, {72, 12, 100, 100}, {100, 3, 95, 100}, {0, 100, 100, 100}};
+/* ROLL's feels: which sixteenths after the kick get a bass note (bit 1 e, 2 &, 3 a) */
+static const struct { const char *name; uint8_t mask; } feels[FEELS] = {
+    {"GALLOP", 0x0C}, {"ROLL", 0x0E}, {"OFFBEAT", 0x04}, {"PUSH", 0x08}};
+/* the layers on the black keys, in order */
+static const uint8_t layer_bit[LAYERS] = {TEKNO_KICK, TEKNO_ROLL, TEKNO_TOMS};
+static const char *const layer_name[LAYERS] = {"RMBL", "ROLL", "TOMS"};
+static const uint8_t layer_color[LAYERS] = {PX_EMBER, PX_GOLD, PX_CYAN};
 /* the toms: H / L high / low, upper case accented, '.' rest */
 static const struct { const char *name, *steps; } patterns[PATTERNS] = {
-    {"ROLL", "HlhlHlhlHlhlHlhl"},
+    {"RUN", "HlhlHlhlHlhlHlhl"},
     {"GALLOP", "H.hlH.hlH.hlHlhl"},
     {"TRIBE", "L.hlh.HlL.hlhlHh"},
     {"SPARSE", "..h...l...h..hl."},
 };
-static const char *const pad_name[PX_PADS] = {"KCK", "TOM", "", "", "", "", "", "", "", "", ""};
+static const char *const pad_name[PX_PADS] = {"RMB", "RLL", "TOM", "", "", "", "", "", "", "", ""};
 static const char *const note_name[12] = {"C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"};
 static const uint8_t white_keys[16] = {0, 2, 4, 6, 7, 9, 11, 12, 14, 16, 18, 19, 21, 23, 24, 26};
 static const uint8_t black_keys[PX_PADS] = {1, 3, 5, 8, 10, 13, 15, 17, 20, 22, 25};
@@ -80,7 +93,21 @@ static void apply(void)
         t->kick_drive_neg = (int32_t)(g * 0.4f * 4096.0f);   /* lopsided: the 2nd harmonic as loud as the 3rd (as measured) */
         t->kick_drive_pos = (int32_t)(g * 4096.0f);
     } else t->kick_drive_pos = 0;
-    k = knob[1];
+    k = knob[P_ROLL];
+    t->roll_feel = feels[k[0]].mask;
+    t->roll_decay_k = per_sample(15.0f + 1.6f * (float)k[1]);                           /* 15..175 ms */
+    {
+        float hz = 80.0f * exp2f_((float)k[2] * 0.055f), x = 3.1415927f * hz / 44100.0f;   /* 80 Hz .. 3.6 kHz */
+        t->roll_f = (int32_t)(2.0f * (x - x * x * x / 6.0f) * 32768.0f);
+        t->roll_damp = (int32_t)(1.1f * 32768.0f);
+    }
+    if (k[3]) {
+        float g = 1.0f + (float)k[3] * 0.08f;
+        t->roll_drive_norm = (int32_t)(32768.0f / tanhf_(g));
+        t->roll_drive = (int32_t)(g * 4096.0f);
+    } else t->roll_drive = 0;
+    t->roll_level = 20000;
+    k = knob[P_TOMS];
     t->tom_inc[0] = dv.note_inc[k[0]];
     t->tom_inc[1] = dv.note_inc[clamp(k[0] - k[1], 0, 127)];
     t->tom_pitch = 5 * 65536;                                                           /* a small drop onto the note */
@@ -88,12 +115,12 @@ static void apply(void)
     t->tom_decay_k = per_sample(20.0f + 2.8f * (float)k[2]);                            /* 20..300 ms */
     t->tom_level = k[3] * 110;
     t->tom_skin = 9000;
-    k = knob[2];
+    k = knob[P_PHASER];
     t->ph_depth = k[0] * 327;
     t->ph_bars_shift = (uint8_t)k[1];
     t->ph_feedback = k[2] * 327;
     t->ph_mix = k[3] * 327;
-    k = knob[3];
+    k = knob[P_MIX];
     t->kick_level = k[1] * 300;
     t->kick_tone = lowpass(120.0f * exp2f_((float)k[2] * 0.06f));                       /* 120 Hz .. 7.7 kHz */
     t->kick_click = k[3] * 200;
@@ -120,11 +147,11 @@ unsigned tekno_active(void) { return active; }
 static void value_text(unsigned pg, unsigned i, char *out)
 {
     int v = knob[pg][i];
-    if (pg == 0 && i == 0) { strcpy(out, note_name[v % 12]); px_number(v / 12 - 1, out + strlen(out)); }
-    else if (pg == 1 && i == 0) { strcpy(out, note_name[v % 12]); px_number(v / 12 - 1, out + strlen(out)); }
-    else if (pg == 2 && i == 1) px_number(1 << v, out);
-    else if (pg == 3 && i == 0) px_number((int)groove_tempo_current(), out);
-    else if (pg == 0 && i == 2 && !v) strcpy(out, "FLAT");
+    if ((pg == P_KICK || pg == P_TOMS) && i == 0) { strcpy(out, note_name[v % 12]); px_number(v / 12 - 1, out + strlen(out)); }
+    else if (pg == P_ROLL && i == 0) strcpy(out, feels[v].name);
+    else if (pg == P_PHASER && i == 1) px_number(1 << v, out);
+    else if (pg == P_MIX && i == 0) px_number((int)groove_tempo_current(), out);
+    else if (pg == P_KICK && i == 2 && !v) strcpy(out, "FLAT");
     else px_number(v, out);
 }
 static void draw(uint32_t now)
@@ -132,20 +159,22 @@ static void draw(uint32_t now)
     char v[4][12];
     const char *value[4] = {v[0], v[1], v[2], v[3]};
     for (unsigned i = 0; i < 4; ++i) value_text(page, i, v[i]);
-    unsigned blink = (now / 140U) & 1U, playing = tekno_layers, want = tekno.want;
-    uint32_t lit = playing;
-    if (blink) lit ^= (want ^ playing);
+    unsigned blink = (now / 140U) & 1U;
+    uint32_t lit = 0;   /* the layers in the black keys' order, waiting ones blinking */
+    for (unsigned l = 0; l < LAYERS; ++l) {
+        unsigned on = (tekno_layers & layer_bit[l]) != 0, will = (tekno.want & layer_bit[l]) != 0;
+        if (on != will && blink) on = !on;
+        lit |= on << l;
+    }
     px_cls(PX_NIGHT);
     px_chrome_pads("TEKNO", pages, PAGES, page, value, pad_name, lit);
     px_print("TEKNO", 2, 1, PX_GOLD);
     /* the layers */
-    static const char *const layer_name[2] = {"KICK", "TOMS"};
-    static const uint8_t layer_color[2] = {PX_EMBER, PX_CYAN};
-    for (unsigned l = 0; l < 2; ++l) {
+    for (unsigned l = 0; l < LAYERS; ++l) {
         unsigned on = (lit >> l) & 1U;
-        int x = 2 + (int)l * 26;
-        px_rect(x, 9, 24, 7, on ? layer_color[l] : PX_DUSK);
-        px_print(layer_name[l], x + 4, 10, on ? PX_NIGHT : PX_SLATE);
+        int x = 1 + (int)l * 26;
+        px_rect(x, 9, 25, 7, on ? layer_color[l] : PX_DUSK);
+        px_print(layer_name[l], x + 5, 10, on ? PX_NIGHT : PX_SLATE);
     }
     /* the toms' pattern: high above, low below, accents tall; the playhead */
     const char *steps = patterns[pattern].steps;
@@ -174,8 +203,12 @@ static void draw(uint32_t now)
 static void leds(uint32_t now)
 {
     unsigned blink = (now / 140U) & 1U;
-    uint32_t layers = tekno_layers;
-    if (blink) layers ^= tekno.want ^ tekno_layers;
+    uint32_t layers = 0;
+    for (unsigned l = 0; l < LAYERS; ++l) {
+        unsigned on = (tekno_layers & layer_bit[l]) != 0, will = (tekno.want & layer_bit[l]) != 0;
+        if (on != will && blink) on = !on;
+        layers |= on << l;
+    }
     uint32_t whites = 1U << pattern;
     if (pattern != pattern_playing && blink) whites = 1U << pattern_playing;
     uint32_t all = whites | (layers << 16);
@@ -214,13 +247,16 @@ int tekno_control(const struct fm1_controls *c)
         if (!tekno.toms_dirty && pattern_playing != pattern) { pattern_playing = pattern; changed = 1; }
     }
     /* black keys: the layers */
-    for (unsigned i = 0; i < 2; ++i) {
+    for (unsigned i = 0; i < LAYERS; ++i) {
         if (!((down >> black_keys[i]) & 1U)) continue;
-        uint8_t bit = (uint8_t)(1U << i);
-        tekno.want = (uint8_t)(tekno.want ^ bit);
-        tekno.engaged = tekno.want != 0;
-        if (tekno.want & bit) start_if_stopped();
-        px_flash(i ? "TOMS" : "KICK", now, 400U);
+        uint8_t bit = layer_bit[i], want = tekno.want;
+        if (want & bit) want = (uint8_t)(want & ~bit);
+        else if (bit & (TEKNO_KICK | TEKNO_ROLL)) want = (uint8_t)((want & ~(TEKNO_KICK | TEKNO_ROLL)) | bit);   /* one kick at a time */
+        else want = (uint8_t)(want | bit);
+        tekno.want = want;
+        tekno.engaged = want != 0;
+        if (want & bit) start_if_stopped();
+        px_flash(i == 0 ? "RUMBLE" : i == 1 ? "ROLL" : "TOMS", now, 400U);
         changed = 1;
     }
     /* white keys 1-4: the toms' pattern */
@@ -240,7 +276,7 @@ int tekno_control(const struct fm1_controls *c)
     const int16_t *k = c->encoders + 2;
     for (unsigned i = 0; i < 4; ++i) {
         if (!k[i]) continue;
-        if (page == 3 && i == 0) groove_tempo_edit(k[i]);
+        if (page == P_MIX && i == 0) groove_tempo_edit(k[i]);
         else {
             int step = (hi[page][i] - lo[page][i]) > 20 ? 2 : 1;
             knob[page][i] = (int16_t)clamp(knob[page][i] + k[i] * step, lo[page][i], hi[page][i]);

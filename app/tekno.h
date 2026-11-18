@@ -1,12 +1,13 @@
 /* SPDX-License-Identifier: GPL-3.0-only WITH GPL-3.0-linking-exception */
 /* TEKNO: 90s free-party tekno (French hardtek, Czech tribe), played live. See tekno.c.
  * Its own voices (tekno_dsp.c), on the FM-1's clock: a RUMBLE KICK whose long tuned tail is the
- * bass, two tuned TOMS rolling on the sixteenths, and a PHASER locked to the bars over the toms. */
+ * bass, or a ROLL (a short kick on the beat, bass notes on the sixteenths between), two tuned TOMS
+ * rolling on the sixteenths, and a PHASER locked to the bars over the toms. */
 #ifndef FM1_TEKNO_H
 #define FM1_TEKNO_H
 #include "fm1.h"
 
-enum { TEKNO_KICK = 1, TEKNO_TOMS = 2 };                  /* layers */
+enum { TEKNO_KICK = 1, TEKNO_TOMS = 2, TEKNO_ROLL = 4 };   /* layers (KICK is the rumble kick; ROLL a short kick and a rolling bass) */
 enum { TEKNO_STEPS = 16, TEKNO_RATIOS = 48 * 8 + 1 };     /* pitch ratios: 0..48 semitones in eighths */
 
 /* Control writes whole words; audio only reads (except the readback at the end). */
@@ -25,6 +26,12 @@ struct tekno_params {
     volatile int32_t kick_drive_pos, kick_drive_neg, kick_drive_norm;   /* Q12 input gains (0 off); Q15 1/tanh(g) */
     volatile int32_t kick_tone;              /* a one-pole low pass after the drive, Q15 */
     volatile int32_t kick_level;             /* Q15 */
+    /* ROLL: the bass between the kicks, on the kick's note. feel: bit 1 / 2 / 3 = the e / & / a */
+    volatile uint8_t roll_feel;
+    volatile int32_t roll_decay_k;           /* Q30 a sample */
+    volatile int32_t roll_f, roll_damp;      /* the low pass: SVF Q15 */
+    volatile int32_t roll_drive, roll_drive_norm;   /* Q12 gain (0 off); Q15 1/tanh(g) */
+    volatile int32_t roll_level;             /* Q15 */
     /* TOMS: high and low */
     volatile uint32_t tom_inc[2];
     volatile int32_t tom_pitch, tom_pitch_k, tom_decay_k, tom_level, tom_skin;   /* skin: the head's noise, Q15 */
