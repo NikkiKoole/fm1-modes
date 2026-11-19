@@ -22,6 +22,8 @@
  *                     · CLAP (TUNE SPREAD DECAY LEVEL; BODY ROOM DRIVE VARY) · ACID (CUTOFF RESO ENV DECAY)
  *                     · DEVIL (ACCENT ACCENT-DECAY SLIDE DRIVE) · GNARL (FILTER-FM SUB TRACK LEVEL)
  *                     · SWEEP (the acid's cutoff ridden on the bars: DEPTH BARS SHAPE RESO)
+ *                     · NOTES (the acid's SCALE: LINE MINOR PHRYG DORIAN HARM, its notes read as degrees;
+ *                     OCT; TRNS against the kick's key)
  *                     · GREN (BASE SPACE Q MORPH) · MOVE (its sweep DEPTH and RATE, GATE, LEVEL)
  *                     · PHASER (on the percussion: DEPTH BARS FDBK MIX) · FLANGE (on the hats: DEPTH BARS
  *                     FDBK MIX) · ECHO (a dub delay: TIME FDBK TONE MIX; its SENDS from CLAP TOMS ACID PERC) · VOWEL (VOWEL MOVE RATE MIX) · MIX (the levels: KICK ROLL TOMS HATS;
@@ -98,7 +100,7 @@
  *   - GENERATORS: "a new one" for the acid line (as X0X's TB-3PO), the toms' pattern, the ROLL
  *     feel; always in key, by the genre's rules (gallop, offbeats, 3-3-2). With hold-to-pick: hold
  *     a layer key, press a GEN key
- *   - KEY AND SCALE: the kick's note is the key already; add a scale for the acid (minor,
+ *   - KEY AND SCALE: DONE (ACID's NOTES page: SCALE, OCT, TRNS). What it was: add a scale for the acid (minor,
  *     phrygian with its flat second, chromatic for mental)
  *   - ARRANGEMENT: live, DROP/BUILD + scenes is a set's shape; later maybe chained scenes over N
  *     bars (intro 16, groove 32, break 8, drop 32) for hands-off songs
@@ -156,7 +158,7 @@ static const struct { const char *name, *steps; } perc_patterns[PERC_PATTERNS] =
 };
 static const char *const mod_name[TEKNO_MODS] = {"OFF", "DROP", "RISE", "TRIL", "TRL+", "RAND", "RND+", "NOIS"};
 static uint8_t perc_wave[2] = {TEKNO_PERC_SINE, TEKNO_PERC_SINE};
-enum { PAGES = 24, PATTERNS = 4, FEELS = 8, LAYERS = 8, LANES = TEKNO_LANES };
+enum { PAGES = 25, PATTERNS = 4, FEELS = 8, LAYERS = 8, LANES = TEKNO_LANES };
 static const struct px_page pages[PAGES] = {
     {"KICK", {"TUNE", "PNCH", "DCAY", "DRV"}},
     {"KICK", {"TONE", "CLK", "LVL", "FINE"}},
@@ -169,6 +171,7 @@ static const struct px_page pages[PAGES] = {
     {"DEVIL", {"ACC", "ADEC", "SLID", "DRV"}},
     {"GNARL", {"FFM", "SUB", "TRK", "LVL"}},
     {"SWEEP", {"DPTH", "BARS", "SHAP", "RES"}},
+    {"NOTES", {"SCAL", "OCT", "TRNS", ""}},
     {"GREN", {"BASE", "SPCE", "Q", "MRPH"}},
     {"MOVE", {"DPTH", "RATE", "GATE", "LVL"}},
     {"PERC", {"SND", "PATN", "RING", "LVL"}},
@@ -184,22 +187,22 @@ static const struct px_page pages[PAGES] = {
     {"MIX", {"FLTR", "RES", "PERC", "PUMP"}},
 };
 /* knob values, a page a row (see apply()); MIX 1 / MIX 2 are the levels, each also on its layer's own page */
-enum { P_KICK, P_KICK2, P_ROLL, P_TOMS, P_HATS, P_CLAP, P_CLAP2, P_ACID, P_DEVIL, P_GNARL, P_SWEEP, P_GREN, P_MOVE,
+enum { P_KICK, P_KICK2, P_ROLL, P_TOMS, P_HATS, P_CLAP, P_CLAP2, P_ACID, P_DEVIL, P_GNARL, P_SWEEP, P_ANOTES, P_GREN, P_MOVE,
        P_PERC, P_PERCA, P_PERCB, P_PHASER, P_FLANGE, P_ECHO, P_ECHO2, P_VOWEL, P_MIX1, P_MIX2, P_MIX3 };
 static int16_t knob[PAGES][4] = {{33, 60, 15, 26}, {62, 30, 62, 0}, {0, 40, 45, 40}, {56, 2, 45, 45}, {50, 30, 50, 50}, {40, 40, 40, 50}, {60, 50, 0, 30},
-                                 {40, 75, 70, 30}, {80, 20, 30, 55}, {25, 0, 0, 60}, {0, 2, 0, 30},
+                                 {40, 75, 70, 30}, {80, 20, 30, 55}, {25, 0, 0, 60}, {0, 2, 0, 30}, {0, 0, 0, 0},
                                  {45, 45, 55, 55}, {50, 5, 3, 60},
                                  {0, 0, 0, 50}, {60, 25, 1, 12}, {55, 25, 1, 12},   /* (PERC: its sound's values, loaded on open) */
                                  {80, 2, 50, 50}, {70, 3, 60, 0}, {2, 45, 40, 60}, {0, 0, 0, 0}, {50, 60, 3, 0},
                                  {62, 62, 45, 50}, {50, 60, 60, 0}, {0, 0, 0, 0}};
 static const int16_t lo[PAGES][4] = {{28, 0, 0, 0}, {0, 0, 0, -50}, {0, 0, 0, 0}, {0, 0, 0, 0}, {48, 1, 0, 0}, {0, 0, 0, 0}, {0, 0, 0, 0},
-                                     {0, 0, 0, 0}, {0, 0, 0, 0}, {0, 0, 0, 0}, {0, 0, 0, 0}, {0, 0, 0, 0}, {0, 0, 0, 0},
+                                     {0, 0, 0, 0}, {0, 0, 0, 0}, {0, 0, 0, 0}, {0, 0, 0, 0}, {0, -1, -12, 0}, {0, 0, 0, 0}, {0, 0, 0, 0},
                                      {0, 0, 0, 0}, {36, 0, 0, 0}, {36, 0, 0, 0},
                                      {0, 0, 0, 0}, {0, 0, 0, 0}, {0, 0, 0, 0}, {0, 0, 0, 0}, {0, 0, 0, 0}, {0, 0, 0, 0}, {0, 0, 0, 0},
                                      {-100, 0, 0, 0}};
 static const int16_t hi[PAGES][4] = {{39, 100, 100, 100}, {100, 100, 100, 50}, {FEELS - 1, 100, 100, 100}, {72, 12, 100, 100},
                                      {100, 100, 100, 100}, {100, 100, 100, 100}, {100, 100, 100, 100}, {100, 100, 100, 100},
-                                     {100, 100, 100, 100}, {100, 100, 100, 100}, {100, 3, 2, 100}, {100, 100, 100, 100}, {100, 6, 4, 100},
+                                     {100, 100, 100, 100}, {100, 100, 100, 100}, {100, 3, 2, 100}, {4, 1, 12, 0}, {100, 100, 100, 100}, {100, 6, 4, 100},
                                      {PERC_SOUNDS - 1, PERC_PATTERNS - 1, 100, 100}, {96, 100, TEKNO_MODS - 1, 48}, {96, 100, TEKNO_MODS - 1, 48},
                                      {100, 3, 95, 100}, {100, 3, 95, 100}, {3, 95, 100, 100}, {100, 100, 100, 100},
                                      {100, 100, 5, 100}, {100, 100, 100, 100}, {100, 100, 100, 0}, {100, 100, 100, 100}};
@@ -215,7 +218,7 @@ static const uint8_t group_first[GROUPS + 1] = {P_KICK, P_ROLL, P_TOMS, P_HATS, 
 static uint8_t group_at[GROUPS];
 /* which layers (pad bit l = black key l + 1) each page is about: their boxes are marked at the bottom */
 static const uint8_t page_layers[PAGES] = {
-    0x03, 0x03, 0x02, 0x04, 0x08, 0x10, 0x10, 0x20, 0x20, 0x20, 0x20, 0x40, 0x40,   /* KICK (RUMBLE and ROLL's) .. MOVE */
+    0x03, 0x03, 0x02, 0x04, 0x08, 0x10, 0x10, 0x20, 0x20, 0x20, 0x20, 0x20, 0x40, 0x40,   /* KICK (RUMBLE and ROLL's) .. MOVE */
     0x80, 0x80, 0x80,                                                               /* PERC */
     0x9C, 0x08, 0xB4, 0xB4, 0xFF, 0xFF, 0xFF, 0xFF};   /* (ECHO: its sends, CLAP TOMS ACID PERC) */                                            /* PHASER (toms hats clap perc), FLANGE (hats), VOWEL, MIX */
 /* ROLL's feels: which sixteenths of the bar get a bass note (bit s: step s; the kick has the beats).
@@ -341,7 +344,7 @@ static void apply_acid(void)
     k = knob[P_SWEEP];
     a->sweep_oct = 4.0f * (float)k[0] / 100.0f;                                           /* up to four octaves open */
     a->sweep_res = (float)k[3] / 100.0f;
-    a->base = tekno.acid_root = (uint8_t)(knob[P_KICK][0] + 12);
+    a->base = tekno.acid_root = (uint8_t)(knob[P_KICK][0] + 12 + 12 * knob[P_ANOTES][1] + knob[P_ANOTES][2]);   /* + OCT, TRNS */
 }
 static void init_acid(void)   /* the fixed filters */
 {
@@ -375,14 +378,26 @@ static void load_perc_pattern(unsigned n)   /* PATN: in at the next bar */
     }
     tekno.perc_dirty = 1;
 }
+/* the acid's SCALE (NOTES page): a line's notes are read as scale degrees (its root, 2nd, 3rd ... 7th, as
+ * written) and played in the scale chosen: DARK's grinding 2nd is a flat 2nd in PHRYG, a whole tone in MINOR */
+enum { SCALES = 5 };
+static const char *const scale_name[SCALES] = {"LINE", "MINOR", "PHRYG", "DORIAN", "HARM"};
+static const uint8_t scale_steps[SCALES][7] = {{0}, {0, 2, 3, 5, 7, 8, 10}, {0, 1, 3, 5, 7, 8, 10}, {0, 2, 3, 5, 7, 9, 10}, {0, 2, 3, 5, 7, 8, 11}};
+static unsigned in_scale(unsigned semis)
+{
+    static const uint8_t degree[12] = {0, 1, 1, 2, 2, 3, 4, 4, 5, 5, 6, 6};   /* (a written note's degree) */
+    unsigned sc = (unsigned)knob[P_ANOTES][0];
+    if (!sc || sc >= SCALES) return semis;
+    return semis / 12U * 12U + scale_steps[sc][degree[semis % 12U]];
+}
 static void load_acid(unsigned p)
 {
     const char *n = acid_lines[p].notes, *sl = acid_lines[p].slides;
     for (unsigned i = 0; i < TEKNO_STEPS; ++i) {
         char c = n[i];
         uint16_t w = 0;
-        if (c >= 'A' && c <= 'X') w = (uint16_t)(TEKNO_ACID_NOTE | TEKNO_ACID_ACCENT | (c - 'A'));
-        else if (c >= 'a' && c <= 'x') w = (uint16_t)(TEKNO_ACID_NOTE | (c - 'a'));
+        if (c >= 'A' && c <= 'X') w = (uint16_t)(TEKNO_ACID_NOTE | TEKNO_ACID_ACCENT | in_scale((unsigned)(c - 'A')));
+        else if (c >= 'a' && c <= 'x') w = (uint16_t)(TEKNO_ACID_NOTE | in_scale((unsigned)(c - 'a')));
         else if (c == '-') w = TEKNO_ACID_TIE;
         if (sl[i] == '~' && w) w |= TEKNO_ACID_SLIDE;
         tekno.acid_want[i] = w;
@@ -745,6 +760,8 @@ static void value_text(unsigned pg, unsigned i, char *out)
     else if (pg == P_VOWEL && i == 2) { if (v) px_number(1 << (v - 1), out); else strcpy(out, "BEAT"); }
     else if (pg == P_VOWEL && i == 3 && !v) strcpy(out, "OFF");
     else if (pg == P_MIX2 && i == 3) px_number((int)groove_tempo_current(), out);
+    else if (pg == P_ANOTES && i == 0) strcpy(out, scale_name[v]);
+    else if (pg == P_ANOTES && i > 0 && v > 0) { strcpy(out, "+"); px_number(v, out + 1); }
     else if (pg == P_ECHO && i == 0) { static const char *const times[4] = {"1/16", "1/8", "3/16", "1/4"}; strcpy(out, times[v & 3]); }
     else if ((pg == P_ECHO2 || (pg == P_MIX3 && i == 3)) && !v) strcpy(out, "OFF");
     else if (pg == P_PERC && i == 0) strcpy(out, perc_sounds[v].name);
@@ -1021,8 +1038,9 @@ int tekno_control(const struct fm1_controls *c)
         if (!k[i] || !pages[page].knob[i][0]) continue;   /* (a knob with no name does nothing) */
         if (page == P_MIX2 && i == 3) groove_tempo_edit(k[i]);
         else {
-            int step = (hi[page][i] - lo[page][i]) > 20 ? 2 : 1;
+            int step = (hi[page][i] - lo[page][i]) > 20 && page != P_ANOTES ? 2 : 1;   /* (TRNS: by semitones) */
             knob[page][i] = (int16_t)clamp(knob[page][i] + k[i] * step, lo[page][i], hi[page][i]);
+            if (page == P_ANOTES && i == 0) load_acid(acid_line);   /* the line in its new scale, at the next bar */
             if (page == P_PERC && i == 0) load_perc_sound((unsigned)knob[page][i]);
             if (page == P_PERC && i == 1) load_perc_pattern((unsigned)knob[page][i]);
             for (unsigned a = 0; a < sizeof level_alias / sizeof level_alias[0]; ++a) {   /* a level: its twin too */
