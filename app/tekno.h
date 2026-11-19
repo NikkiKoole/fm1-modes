@@ -38,7 +38,10 @@ struct tekno_gren {
     float base_hz, space, r, morph;              /* the first filter; the ratio up to the next; 1/Q; the trapezoid's steepness */
     float move_oct, level;                       /* the bars' sweep, octaves each way; output */
     float fine;                                  /* FINE: semitones added to its note */
+    unsigned source;                             /* SOURCE: what goes into the filterbank (TEKNO_GSRC_*) */
+    float detune, ratio;                         /* SAWS: the outer saws' spread (a ratio - 1); RING: B's ratio to A */
 };
+enum { TEKNO_GSRC_TRAP, TEKNO_GSRC_SAWS, TEKNO_GSRC_RING, TEKNO_GSRC_NOISE, TEKNO_GSRC_DIDGE, TEKNO_GSRCS };
 /* PERC, after Korg's Electribe ER-1: two synth percussion voices, a simple oscillator each whose pitch
  * MOD makes the sound (a drop: bloops and zaps; a rise; a trill; random bleeps; noise), A ring-modulated
  * by B's oscillator for metal */

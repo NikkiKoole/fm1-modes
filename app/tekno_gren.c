@@ -38,11 +38,14 @@ INLINE float ftan(float x)   /* 0 .. ~1.2 */
 static struct {
     float phase, inc, env, decay, amp, move;
     float low[3], band[3], g[3], h[3];
+    float ph2, ph3;          /* SAWS' and RING's other oscillators */
+    uint32_t rng;
     unsigned tick, idle, on;
-} g = {.idle = 1};
+} g = {.idle = 1, .rng = 0x2545F491u};
 
 FM1_AUDIO_CODE void tekno_gren_note(int note)
 {
+    if (tekno.gren.source == TEKNO_GSRC_DIDGE) note -= 12;   /* (the didgeridoo an octave down) */
     g.inc = 440.0f * fexp2(((float)(note - 69) + tekno.gren.fine) * (1.0f / 12.0f)) * (1.0f / 44100.0f);   /* (+ FINE) */
     if (g.idle) {
         for (unsigned i = 0; i < 3; ++i) g.low[i] = g.band[i] = 0.0f;
@@ -69,10 +72,34 @@ FM1_AUDIO_CODE int32_t tekno_gren_sample(void)
             f *= p->space;
         }
     }
-    float ph = g.phase;
+    float ph = g.phase, x;
     g.phase += g.inc; if (g.phase >= 1.0f) g.phase -= 1.0f;
-    float tri = ph < 0.5f ? -1.0f + 4.0f * ph : 3.0f - 4.0f * ph;
-    float x = fclamp(tri * p->morph, -1.0f, 1.0f);   /* the trapezoid: steeper sides, flatter tops */
+    switch (p->source) {   /* SOURCE: what the filterbank shapes */
+    case TEKNO_GSRC_SAWS: {   /* three saws, the outer two detuned: hoover, reese */
+        g.ph2 += g.inc * (1.0f + p->detune); if (g.ph2 >= 1.0f) g.ph2 -= 1.0f;
+        g.ph3 += g.inc * (1.0f - p->detune); if (g.ph3 >= 1.0f) g.ph3 -= 1.0f;
+        x = ((2.0f * ph - 1.0f) + (2.0f * g.ph2 - 1.0f) + (2.0f * g.ph3 - 1.0f)) * 0.45f;
+        break;
+    }
+    case TEKNO_GSRC_RING: {   /* two oscillators multiplied, B at a non-whole ratio: inharmonic metal */
+        g.ph2 += g.inc * p->ratio; if (g.ph2 >= 1.0f) g.ph2 -= 1.0f;
+        float a = ph < 0.5f ? -1.0f + 4.0f * ph : 3.0f - 4.0f * ph, b = 2.0f * g.ph2 - 1.0f;
+        x = a * b * 1.4f;
+        break;
+    }
+    case TEKNO_GSRC_NOISE: {   /* wind */
+        g.rng ^= g.rng << 13; g.rng ^= g.rng >> 17; g.rng ^= g.rng << 5;
+        x = (float)(int32_t)g.rng * (1.0f / 2147483648.0f) * 1.6f;
+        break;
+    }
+    case TEKNO_GSRC_DIDGE:   /* a narrow pulse: the lips' buzz (the filterbank is the mouth) */
+        x = ph < 0.12f ? 0.62f : -0.085f;
+        break;
+    default: {   /* the trapezoid: steeper sides, flatter tops */
+        float tri = ph < 0.5f ? -1.0f + 4.0f * ph : 3.0f - 4.0f * ph;
+        x = fclamp(tri * p->morph, -1.0f, 1.0f);
+    }
+    }
     float sum = 0.0f;
     for (unsigned i = 0; i < 3; ++i) {
         float hp = (x - (p->r + g.g[i]) * g.band[i] - g.low[i]) * g.h[i];
