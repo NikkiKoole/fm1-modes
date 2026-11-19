@@ -14,7 +14,8 @@
  *   white keys 1-4    the toms' pattern: RUN, GALLOP, TRIBE (again: 3-3-2), SPARSE
  *   white keys 5-8    the hats' pattern: 16THS, OFFBEAT, GALLOP, BUSY
  *   white keys 9-12   the clap's pattern: BACKBEAT, OFFBEAT, BREAKER, FILL
- *   white keys 13-16  the acid's line: PULSE (again: DOTTED), GALLOP (BOUNCE), SQUELCH (SPARSE), DARK (GRIND)
+ *   white keys 13-16  the acid's line: PULSE (again: DOTTED, again: RUN), GALLOP (BOUNCE, SPIRAL),
+ *                     SQUELCH (SPARSE, WORM), DARK (GRIND, ARP)
  *                     (a lit pattern key pressed again swaps to its second pattern, where it has one)
  *   (the pages)       KICK (TUNE PUNCH DECAY DRIVE) · ROLL (FEEL: GALLOP ROLL OFFBEAT PUSH
  *                     REVERSE HICCUP 3-3-2 DOTTED; DECAY CUTOFF DRIVE)
@@ -251,7 +252,8 @@ static const struct { const char *name, *steps; } patterns[LANES][VARIANTS] = {
 };
 /* the acid's lines, on the kick's note an octave up: a step is a note ('a' the root .. 'x' 23 semitones
  * up; upper case accented), '-' the last note held on, '.' a rest; '~' under a step slides it into the next */
-static const struct { const char *name, *notes, *slides; } acid_lines[VARIANTS] = {
+enum { ACID_LINES = 3 * PATTERNS };   /* each key: its line, a second on a second press, a third on a third */
+static const struct { const char *name, *notes, *slides; } acid_lines[ACID_LINES] = {
     /* sparse on purpose (3-7 notes a bar): the root, its octave, one colour note; the rhythm and the
      * accents and slides do the work. Each key's second line on a second press. */
     {"PULSE",   "..a...a...a...A.", "................"},   /* four offbeat roots, the last barking */
@@ -262,6 +264,11 @@ static const struct { const char *name, *notes, *slides; } acid_lines[VARIANTS] 
     {"BOUNCE",  "a..m..a..m..a.M.", "................"},   /* root and octave every third sixteenth */
     {"SPARSE",  "a.......m-a.....", ".........~......"},   /* one root, an octave pickup sliding down into the next */
     {"GRIND",   "A-b-a...A-b-m...", ".~.~.....~.~...."},   /* held notes sliding root, flat 2nd, root / octave */
+    /* the third: sixteenth-note movement through the scale (written in minor; SCALE re-colours them) */
+    {"RUN",     "acdfhfdcAcdfhkmK", "...~.......~...."},   /* runs up and down the scale */
+    {"SPIRAL",  "aMdmfMhmfMdmcMam", "................"},   /* climbing against an octave pedal, the see-saw */
+    {"WORM",    "acdcAcdfdcdfHfdc", "~.~.~.~.~.~.~.~."},   /* stepwise, slithering, half of it slid */
+    {"ARP",     "adhmhdaDfimifdcA", "...~.......~...."},   /* root 3rd 5th octave, then the 4th and 6th */
 };
 static const char *const pad_name[PX_PADS] = {"RM", "RL", "TM", "HT", "CP", "AC", "GR", "PC", "", "", ""};   /* (the strip: two letters) */
 static const char *const note_name[12] = {"C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"};
@@ -1005,7 +1012,8 @@ int tekno_control(const struct fm1_controls *c)
     for (unsigned key = 0; key < PATTERNS; ++key) {
         if (!((down >> white_keys[LANES * PATTERNS + key]) & 1U)) continue;
         unsigned p = key;
-        if (acid_line == p && acid_lines[p + PATTERNS].name) p += PATTERNS;   /* pressed again: its second */
+        if (acid_line % PATTERNS == key)   /* pressed again: the key's next line (first, second, third, first ...) */
+            p = acid_line + PATTERNS < ACID_LINES ? acid_line + PATTERNS : key;
         load_acid(p);
         shown_lane = LANES;
         static char text[24];
