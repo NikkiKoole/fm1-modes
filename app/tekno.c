@@ -27,7 +27,7 @@
  *                     OCT; TRNS against the kick's key)
  *                     · GREN (BASE SPACE Q MORPH) · MOVE (its sweep DEPTH and RATE, GATE, LEVEL) · SOURCE
  *                     (SRC: TRAP SAWS RING NOISE DIDGE, what goes into its filterbank; DTUN: SAWS' spread,
- *                     RING's ratio; DIDGE also sets the mouth: low formants wobbling on the beat, droning)
+ *                     RING's ratio; DIDGE also sets the mouth: low formants sweeping over 2 bars, droning)
  *                     · PHASER (on the percussion: DEPTH BARS FDBK MIX) · FLANGE (on the hats: DEPTH BARS
  *                     FDBK MIX) · ECHO (a dub delay: TIME FDBK TONE MIX; its SENDS from CLAP TOMS ACID PERC) · VOWEL (VOWEL MOVE RATE MIX) · MIX (the levels: KICK ROLL TOMS HATS;
  *                     then CLAP ACID GREN, and TEMPO; then the DJ FILTER: FLTR (left low pass, right
@@ -1058,7 +1058,7 @@ int tekno_control(const struct fm1_controls *c)
             knob[page][i] = (int16_t)clamp(knob[page][i] + k[i] * step, lo[page][i], hi[page][i]);
             if (page == P_ANOTES && i == 0) load_acid(acid_line);
             if (page == P_GSRC && i == 0 && knob[page][0] == TEKNO_GSRC_DIDGE) {   /* DIDGE: the mouth's settings too */
-                static const int16_t mouth[2][4] = {{30, 30, 75, 55}, {45, 1, 0, 70}};   /* GREN: BASE SPCE Q MRPH; MOVE: DPTH RATE(a beat) GATE(drone) LVL */
+                static const int16_t mouth[2][4] = {{30, 30, 75, 55}, {45, 4, 0, 70}};   /* GREN: BASE SPCE Q MRPH; MOVE: DPTH RATE(2 bars) GATE(drone) LVL */
                 for (unsigned j = 0; j < 4; ++j) { knob[P_GREN][j] = mouth[0][j]; knob[P_MOVE][j] = mouth[1][j]; }
                 knob[P_MIX2][2] = knob[P_MOVE][3];   /* (its level's twin) */
             }   /* the line in its new scale, at the next bar */
